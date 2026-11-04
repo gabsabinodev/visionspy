@@ -44,7 +44,7 @@ export function DownloadAll({ files, zipName }: { files: { url: string; name: st
         }
       }}
     >
-      {state ?? `⬇ Baixar tudo (.zip · ${files.length})`}
+      {state ?? `Baixar tudo em .zip (${files.length})`}
     </button>
   );
 }
@@ -115,7 +115,7 @@ export function MyVersionForm({ offerKey, defaults, hasVersion }: { offerKey: st
       </label>
       <div className="wide my-actions">
         <button className="btn" disabled={pending}>{pending ? "Escrevendo… (até 1 min)" : hasVersion ? "Reescrever minha versão" : "Escrever minha versão"}</button>
-        {state.message && <span className={state.ok ? "up mono" : "warn mono"} role="status">{state.message}</span>}
+        {state.message && <span className={state.ok ? "up" : "warn"} role="status">{state.message}</span>}
       </div>
     </form>
   );

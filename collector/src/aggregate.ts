@@ -36,6 +36,7 @@ export function mergeAds(results: KeywordResult[], ignored: Set<string>): AdWith
       if (prev) {
         if (!prev.keywords.includes(r.keyword)) prev.keywords.push(r.keyword);
         prev.copies = Math.max(prev.copies, ad.copies);
+        if (ad.rank != null) prev.rank = Math.min(prev.rank ?? ad.rank, ad.rank);
         prev.landingUrl ??= ad.landingUrl;
         prev.pageUrl ??= ad.pageUrl;
         prev.thumbUrl ??= ad.thumbUrl;

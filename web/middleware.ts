@@ -8,14 +8,15 @@ export function middleware(req: NextRequest) {
   const auth = req.headers.get("authorization") || "";
   const [scheme, encoded] = auth.split(" ");
   if (scheme === "Basic" && encoded) {
-    const [, given] = atob(encoded).split(":");
-    if (given === pass) return NextResponse.next();
+    // a senha pode ter ":": só o primeiro separa usuário de senha
+    const decoded = atob(encoded);
+    if (decoded.slice(decoded.indexOf(":") + 1) === pass) return NextResponse.next();
   }
   return new NextResponse("Acesso restrito", {
     status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Radar de Ofertas"' },
+    headers: { "WWW-Authenticate": 'Basic realm="VisionSpy"' },
   });
 }
 
 // /api/cron é chamado pela Vercel e se protege com CRON_SECRET
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|api/cron).*)"] };
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.png|icon.svg|apple-icon.png|opengraph-image.png|api/cron).*)"] };

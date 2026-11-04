@@ -102,6 +102,7 @@ export async function saveAds(db: SupabaseClient, ads: (AdWithMeta & { country?:
           body: a.body,
           start_date: a.startDate,
           copies: a.copies,
+          best_rank: a.rank ?? null,
           keywords: a.keywords,
           page_url: a.pageUrl ?? null,
           landing_url: a.landingUrl ?? null,
@@ -278,7 +279,7 @@ export async function saveLandings(db: SupabaseClient, rows: LandingInfo[]) {
         platform: r.platform, checkout: r.checkout, prices: r.prices, price_min: r.priceMin, price_max: r.priceMax,
         installments: r.installments, cod: r.cod, has_vsl: r.hasVsl, has_countdown: r.hasCountdown,
         has_whatsapp: r.hasWhatsapp, pixels: r.pixels, excerpt: r.excerpt, error: r.error, checked_at: now,
-        currency: r.currency ?? null,
+        currency: r.currency ?? null, tracking_ids: r.trackingIds ?? [],
         // print e texto completo só quando foram feitos agora (não apaga os anteriores)
         ...(r.fullText ? { full_text: r.fullText } : {}),
         ...(shotPath.has(r.url) ? { shot_path: shotPath.get(r.url) } : {}),
@@ -609,6 +610,43 @@ export async function tiktokMediaTodo(db: SupabaseClient, videoLimit: number) {
     covers: (covers.data ?? []) as { id: string; cover_url: string }[],
     videos: (videos.data ?? []) as { id: string; video_url: string }[],
   };
+}
+
+/** Bytes dos vídeos do TikTok guardados, para respeitar o orçamento do bucket. */
+export async function tiktokMediaBytes(db: SupabaseClient): Promise<number> {
+  const rows = check(
+    await db.from("tiktok_top_ads").select("media_bytes").not("media_path", "is", null).limit(1000),
+    "tiktok_top_ads (bytes)",
+  ) as { media_bytes: number | null }[];
+  return rows.reduce((sum, r) => sum + (r.media_bytes ?? 0), 0);
+}
+
+export interface Cleanup {
+  fotos: number;
+  anuncios: number;
+  paginas: number;
+  arquivos: Record<string, string[]>;
+}
+
+/** Roda a limpeza do banco e devolve os arquivos que ficaram sem dono. */
+export async function cleanOldData(db: SupabaseClient): Promise<Cleanup> {
+  const res = await db.rpc("limpar_dados");
+  if (res.error) throw new Error(`limpar_dados: ${res.error.message}`);
+  return res.data as Cleanup;
+}
+
+/** Remove arquivos do Storage por bucket, em blocos, e devolve quantos foram pedidos. */
+export async function removeFiles(db: SupabaseClient, byBucket: Record<string, string[]>): Promise<number> {
+  let total = 0;
+  for (const [bucket, paths] of Object.entries(byBucket)) {
+    for (let i = 0; i < paths.length; i += 100) {
+      const chunk = paths.slice(i, i + 100);
+      const res = await db.storage.from(bucket).remove(chunk);
+      if (res.error) throw new Error(`Storage ${bucket}: ${res.error.message}`);
+      total += chunk.length;
+    }
+  }
+  return total;
 }
 
 /** Vídeos do TikTok que saíram do destaque há mais de 21 dias: apaga do Storage para caber no plano grátis. */

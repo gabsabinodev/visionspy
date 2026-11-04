@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   let notified = false;
   if (!healthy && token && chat) {
     const site = process.env.PANEL_URL || `https://${req.headers.get("host")}`;
-    const text = `⚠️ <b>Radar parado</b>\nA última coleta da Meta com sucesso foi ${last ? `há ${Math.round(hours)} horas` : "nunca"}.\nConfira o GitHub Actions (o agendamento pode ter sido desligado) e a <a href="${site}/status">página de status</a>.`;
+    const text = `⚠️ <b>VisionSpy parado</b>\nA última coleta da Meta com sucesso foi ${last ? `há ${Math.round(hours)} horas` : "nunca"}.\nConfira o GitHub Actions (o agendamento pode ter sido desligado) e a <a href="${site}/status">página de status</a>.`;
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

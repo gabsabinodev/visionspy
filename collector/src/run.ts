@@ -370,7 +370,10 @@ async function runTikTok(client: Db, day: string) {
       /* capa indisponível: tenta na próxima */
     }
   }
+  let tiktokBytes = await db.tiktokMediaBytes(client);
+  const tiktokBudget = num("TIKTOK_BUDGET_MB", 150) * 1024 * 1024;
   for (const it of todo.videos) {
+    if (tiktokBytes >= tiktokBudget) break;
     try {
       const buf = await tiktokFetch(it.video_url, "https://ads.tiktok.com/");
       const path = `tt/${it.id}.mp4`;
@@ -378,6 +381,7 @@ async function runTikTok(client: Db, day: string) {
       if (!up.error) {
         await client.from("tiktok_top_ads").update({ media_path: path, media_bytes: buf.length }).eq("id", it.id);
         videos++;
+        tiktokBytes += buf.length;
       }
     } catch {
       /* vídeo indisponível: tenta na próxima */
@@ -432,9 +436,17 @@ async function runMedia(client: Db) {
   const keys = await db.priorityKeys(client, num("MEDIA_OFFERS", 40));
   const items = await db.mediaToStore(client, keys, num("MEDIA_PER_OFFER", 3), num("MEDIA_LIMIT", 60));
   const r = items.length ? await storeMedia(client, items) : { saved: 0, failed: 0, skipped: 0, bytes: 0 };
-  const pruned = await pruneMedia(client, num("MEDIA_BUDGET_MB", 600) * 1024 * 1024, new Set(keys));
+  const pruned = await pruneMedia(client, num("MEDIA_BUDGET_MB", 350) * 1024 * 1024, new Set(keys));
   await db.logRun(client, "midia", r.failed < Math.max(items.length, 1), r.saved, [r.failed ? `${r.failed} falharam` : "", r.skipped ? `${r.skipped} grandes demais` : "", pruned ? `${pruned} antigos apagados` : ""].filter(Boolean).join(", "));
   notes.push(`Mídia original: ${r.saved} arquivos guardados (${Math.round(r.bytes / 1048576)} MB)${r.failed ? `, ${r.failed} falharam` : ""}${r.skipped ? `, ${r.skipped} acima de 45 MB` : ""}${pruned ? `, ${pruned} antigos apagados para caber no plano grátis` : ""}`);
+}
+
+/** Apaga anúncios e histórico antigos para caber no plano grátis. Funil e espionagem ficam. */
+async function runCleanup(client: Db) {
+  const r = await db.cleanOldData(client);
+  const files = await db.removeFiles(client, r.arquivos);
+  await db.logRun(client, "limpeza", true, r.anuncios + r.fotos + r.paginas, `${r.anuncios} anúncios, ${r.fotos} fotos, ${r.paginas} páginas, ${files} arquivos`);
+  notes.push(`Limpeza: ${r.anuncios} anúncios, ${r.fotos} fotos diárias, ${r.paginas} páginas e ${files} arquivos apagados`);
 }
 
 /** Avisos no Telegram: oferta nova no top 20 e disparo de cópias. */
@@ -502,6 +514,7 @@ async function main() {
     if (want("kit")) await step("kit", () => runKits(client));
     if (want("transcricao")) await step("transcricao", () => runTranscripts(client));
     if (want("alertas")) await step("alertas", () => runAlerts(client));
+    if (want("limpeza")) await step("limpeza", () => runCleanup(client));
   }
 
   await closeBrowser();
@@ -522,7 +535,7 @@ async function main() {
     const run = process.env.GITHUB_RUN_ID && process.env.GITHUB_REPOSITORY
       ? `\n\n<a href="https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}">ver execução</a> · <a href="${panelUrl()}/status">status</a>`
       : "";
-    await sendTelegram(`⚠️ <b>Radar: coleta com falha</b>\n\n${failures.map((f) => "• " + esc(f.split("\n")[0].slice(0, 300))).join("\n")}${run}`).catch(() => {});
+    await sendTelegram(`⚠️ <b>VisionSpy: coleta com falha</b>\n\n${failures.map((f) => "• " + esc(f.split("\n")[0].slice(0, 300))).join("\n")}${run}`).catch(() => {});
     process.exit(1);
   }
 }

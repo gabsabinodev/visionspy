@@ -1,27 +1,26 @@
-import "@fontsource/chakra-petch/400.css";
-import "@fontsource/chakra-petch/500.css";
-import "@fontsource/chakra-petch/600.css";
-import "@fontsource/jetbrains-mono/400.css";
-import "@fontsource/jetbrains-mono/600.css";
+import { Archivo } from "next/font/google";
 import "./globals.css";
-import Link from "next/link";
 import type { ReactNode } from "react";
-import { Nav } from "./nav";
+import { lastCollect } from "@/lib/health";
+import { Sidebar } from "./nav";
 
-export const metadata = { title: "Radar de Ofertas" };
+const archivo = Archivo({ subsets: ["latin", "latin-ext"], axes: ["wdth"], display: "swap", variable: "--font-archivo" });
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export const metadata = {
+  title: { default: "VisionSpy", template: "%s | VisionSpy" },
+  description: "Mineração de anúncios por investimento estimado e país.",
+};
+export const viewport = { themeColor: "#03060c" };
+
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const health = await lastCollect();
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" className={archivo.variable}>
       <body>
-        <header className="topbar">
-          <Link href="/" className="logo" aria-label="Radar de Ofertas, início">
-            <span className="scope" aria-hidden="true" />
-            <span><span className="tag">&lt;</span><span className="name">radar</span><span className="tag">/&gt;</span></span>
-          </Link>
-          <Nav />
-        </header>
-        <main>{children}</main>
+        <div className="app">
+          <Sidebar health={health} />
+          <main>{children}</main>
+        </div>
       </body>
     </html>
   );

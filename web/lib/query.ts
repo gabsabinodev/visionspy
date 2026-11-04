@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { STATUSES, type OfferRow } from "./db";
+import { EUROPE, STATUSES, type OfferRow } from "./db";
 
 /** Filtros do ranking, lidos da URL (a URL é a fonte da verdade: dá para salvar e compartilhar). */
 export interface Filters {
@@ -13,6 +13,10 @@ export interface Filters {
   site: boolean;
   /** inclui ofertas sem sinal de escala (1 anúncio, sem cópias, sem Google, sem crescimento) */
   todas: boolean;
+  /** inclui marcas grandes (1000+ anúncios no Google) */
+  marcas: boolean;
+  /** recorte principal do ranking */
+  lente: Lens;
   nicho: string;
   tipo: string;
   destino: string;
@@ -33,10 +37,21 @@ export interface Filters {
   limit: number;
 }
 
+export const LENSES = {
+  acelerando: { label: "Acelerando", hint: "Quem mais lançou criativo, ganhou cópias ou abriu página na semana" },
+  novas: { label: "Novas", hint: "Apareceram nos últimos 7 dias" },
+  vencedoras: { label: "Vencedoras", hint: "Com anúncio rodando há 30 dias ou mais" },
+  esfriando: { label: "Esfriando", hint: "Perdendo cópias rápido na semana" },
+  todas: { label: "Todas", hint: "Tudo com sinal de escala, sem recorte" },
+} as const;
+export type Lens = keyof typeof LENSES;
+
 /** Sinal mínimo de escala: algo além de um anúncio solto. */
 export const STRONG_SIGNAL = "copies.gte.3,pages.gte.2,google_ads.gte.10,copies_growth.gt.0";
 
 export const SORTS = {
+  momentum: "momentum",
+  invest: "est_month_brl",
   score: "score",
   crescimento: "copies_growth",
   copias: "copies",
@@ -48,6 +63,7 @@ export const SORTS = {
   preco: "price_min",
   validadas: "long_runners",
   dias: "days_running",
+  lancados: "launched_7d",
 } as const satisfies Record<string, keyof OfferRow>;
 export type SortKey = keyof typeof SORTS;
 
@@ -64,11 +80,12 @@ const clean = (v: string, n = 60) => v.replace(/[,()%*\\]/g, " ").trim().slice(0
 export function parsePais(v: string): string {
   const up = v.trim().toUpperCase();
   if (up === "TODOS") return "todos";
+  if (up === "EUROPA") return "europa";
   return /^[A-Z]{2}$/.test(up) ? up : "BR";
 }
 
 export function parseFilters(sp: Raw): Filters {
-  const sort = (Object.keys(SORTS).includes(one(sp.ordem)) ? one(sp.ordem) : "score") as SortKey;
+  const sort = (Object.keys(SORTS).includes(one(sp.ordem)) ? one(sp.ordem) : "momentum") as SortKey;
   const defaultDir = ASC_DEFAULT.includes(sort) ? "asc" : "desc";
   const dir = one(sp.dir) === "asc" || one(sp.dir) === "desc" ? (one(sp.dir) as "asc" | "desc") : defaultDir;
   const n = Number(one(sp.n));
@@ -84,6 +101,8 @@ export function parseFilters(sp: Raw): Filters {
     google: one(sp.google) === "1",
     site: one(sp.site) === "1",
     todas: one(sp.todas) === "1",
+    marcas: one(sp.marcas) === "1",
+    lente: one(sp.lente) in LENSES ? (one(sp.lente) as Lens) : "acelerando",
     nicho: clean(one(sp.nicho)),
     tipo: clean(one(sp.tipo)),
     destino: clean(one(sp.destino)),
@@ -104,15 +123,16 @@ export function parseFilters(sp: Raw): Filters {
 }
 
 /** Monta a URL do ranking mudando só o que for passado. */
-export function hrefWith(f: Filters, patch: Partial<Filters>, path = "/"): string {
+export function hrefWith(f: Filters, patch: Partial<Filters>, path = "/ofertas"): string {
   const m = { ...f, ...patch };
   const p = new URLSearchParams();
   if (m.q) p.set("q", m.q);
   if (m.kw) p.set("kw", m.kw);
-  if (m.sort !== "score") p.set("ordem", m.sort);
+  if (m.sort !== "momentum") p.set("ordem", m.sort);
+  if (m.lente !== "acelerando") p.set("lente", m.lente);
   const defaultDir = ASC_DEFAULT.includes(m.sort) ? "asc" : "desc";
   if (m.dir !== defaultDir) p.set("dir", m.dir);
-  for (const k of ["novas", "crescendo", "google", "site", "todas", "cod", "vsl", "validadas", "esfriando", "espionadas", "tiktok", "kwai"] as const) if (m[k]) p.set(k, "1");
+  for (const k of ["novas", "crescendo", "google", "site", "todas", "marcas", "cod", "vsl", "validadas", "esfriando", "espionadas", "tiktok", "kwai"] as const) if (m[k]) p.set(k, "1");
   if (m.pais && m.pais !== "BR") p.set("pais", m.pais);
   for (const k of ["nicho", "tipo", "destino", "checkout", "risco", "status"] as const) if (m[k]) p.set(k, m[k]);
   if (m.preco) p.set("preco", String(m.preco));
@@ -137,7 +157,9 @@ export async function queryOffers(client: SupabaseClient, f: Filters, limit = f.
   const search = f.q
     ? `advertiser.ilike.%${f.q}%,domain.ilike.%${f.q}%,sample_text.ilike.%${f.q}%,landing_url.ilike.%${f.q}%,promise.ilike.%${f.q}%`
     : null;
-  if (f.novas) query = query.gte("first_seen", new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10));
+  // lentes: o recorte principal da tela
+  if (f.lente === "acelerando") query = query.gt("momentum", 0);
+  if (f.lente === "novas" || f.novas) query = query.gte("first_seen", new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10));
   if (f.crescendo) query = query.gt("copies_growth", 0);
   if (f.google) query = query.gt("google_ads", 0);
   if (f.site) query = query.not("landing_url", "is", null);
@@ -149,9 +171,11 @@ export async function queryOffers(client: SupabaseClient, f: Filters, limit = f.
   if (f.risco) query = query.eq("risk", f.risco);
   if (f.cod) query = query.eq("cod", true);
   if (f.vsl) query = query.eq("has_vsl", true);
-  if (f.pais !== "todos") query = query.eq("country", f.pais);
-  if (f.validadas) query = query.gt("long_runners", 0);
-  if (f.esfriando) query = query.eq("cooling", true);
+  if (f.pais === "europa") query = query.in("country", EUROPE);
+  else if (f.pais !== "todos") query = query.eq("country", f.pais);
+  if (f.lente === "vencedoras" || f.validadas) query = query.gt("long_runners", 0);
+  if (f.lente === "esfriando" || f.esfriando) query = query.eq("cooling", true);
+  if (!f.marcas) query = query.eq("big_brand", false);
   if (f.espionadas) query = query.eq("watched", true);
   if (f.tiktok) query = query.contains("pixels", ["TikTok"]);
   if (f.kwai) query = query.contains("pixels", ["Kwai"]);
@@ -172,4 +196,11 @@ export async function countAll(client: SupabaseClient, f: Filters) {
   if (f.todas || f.status) return null;
   const { total } = await queryOffers(client, { ...f, todas: true }, 1);
   return total;
+}
+
+/** Quantas marcas grandes os filtros atuais estão escondendo. */
+export async function countBig(client: SupabaseClient, f: Filters, shown: number) {
+  if (f.marcas) return 0;
+  const { total } = await queryOffers(client, { ...f, marcas: true }, 1);
+  return Math.max(total - shown, 0);
 }

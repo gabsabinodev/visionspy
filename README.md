@@ -1,118 +1,120 @@
-# Radar de Ofertas
+# VisionSpy
 
-Robô que minera, várias vezes por dia, as ofertas que estão escalando no Brasil. Ele guarda o histórico e mostra tudo num painel.
-
-## Como funciona
+Painel de mineração de anúncios da família SabinoVision. Um robô lê a Biblioteca de Anúncios da Meta todo dia, guarda o histórico e mostra onde tem dinheiro rodando, por país, moeda e faixa de investimento.
 
 | Parte | Onde roda | O que faz |
 | --- | --- | --- |
-| Robô coletor (`collector/`) | GitHub Actions, 3x ao dia (6h, 12h e 18h) | Busca cada palavra-chave na Biblioteca de Anúncios da Meta (Brasil, só anúncios ativos, mais vistos primeiro). Conta quantos anúncios cada site tem no Google e lê o ranking de empresas novas do Reclame Aqui. |
-| Banco (`supabase/`) | Supabase | Guarda cada anúncio e uma "foto" diária de cada oferta, que é de onde sai o crescimento. |
-| Painel (`web/`) | Vercel | Ranking com filtros, página de cada oferta com gráfico de evolução e lista de anúncios, gestão de palavras-chave. |
+| Robô (`collector/`) | GitHub Actions, uma região por rodada | Busca cada palavra-chave na Meta, conta anúncios no Google, lê TikTok e Reclame Aqui, faz o raio-X das páginas e chama a IA. |
+| Banco (`supabase/`) | Supabase | Guarda cada anúncio e uma foto diária de cada oferta. |
+| Painel (`web/`) | Vercel | Mineração, ofertas, nichos, funil, espionagem e status. |
+| Marca (`brand/`) | | Logo, favicon e arquivos do brand book. |
 
-**Score de escala** = cópias do criativo + 2 × anúncios entre os mais vistos + 5 × páginas extras com a mesma oferta + bônus do Google (10 se tiver 100 ou mais anúncios, 5 se tiver 10 ou mais) + 2 × cópias novas na semana.
+## Investimento estimado
 
-O crescimento semanal é o sinal mais forte. Uma oferta que passou de 5 para 40 cópias em 7 dias está vendendo.
+Nenhuma biblioteca pública mostra o gasto real de anúncio comercial no Brasil. O valor no painel é um modelo, e a conta aparece na tela ao abrir cada anúncio:
 
----
+```
+cópias × orçamento diário por cópia × dias no ar (até 30) × bônus de posição
+```
 
-## Passo 1: Supabase (banco)
+- O orçamento diário depende da fase e do país. Os valores ficam na tabela `spend_model` do Supabase. Mude lá quando tiver referência melhor: o painel recalcula na hora.
+- O bônus vale para anúncios entre os mais vistos da busca: ×1,5 no top 10 e ×1,2 no top 50.
+- A faixa mostrada vai da metade ao dobro do valor central.
 
-1. Crie um projeto em supabase.com (região São Paulo).
-2. Abra **SQL Editor**, cole todo o conteúdo de `supabase/schema.sql` e clique em **Run**.
-3. Em **Project Settings → API**, copie:
-   - **Project URL**, que será o `SUPABASE_URL`;
-   - **service_role key**, que será o `SUPABASE_SERVICE_ROLE_KEY`. É a chave secreta; nunca coloque ela no navegador nem em código público.
+**Fases:** Vencedor tem 30+ dias e 6+ cópias. Escalando tem 3+ cópias, ou 2+ cópias com 14+ dias. O resto é Teste.
 
-## Passo 2: GitHub (robô)
+**Momentum:** 3 × criativos lançados na semana + 2 × cópias ganhas + 5 × páginas ganhas. Oferta antiga recém-descoberta não conta como disparo, então adicionar palavra-chave não infla o ranking.
 
-1. Crie um repositório **privado** e suba esta pasta inteira.
-2. Em **Settings → Secrets and variables → Actions → New repository secret**, crie `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`.
-3. Rode a primeira coleta à mão: **Actions → Coletar ofertas → Run workflow**.
-4. Depois disso, ela roda sozinha 3x por dia.
+## Países e moedas
 
-O plano grátis do GitHub cobre com folga: cada coleta leva de 10 a 15 minutos.
+Cada palavra-chave pertence a um país. O painel filtra por país ou pela Europa inteira, e mostra os valores em R$, US$, € ou £. A moeda padrão segue o país, e os câmbios ficam na tabela `spend_model`.
 
-## Passo 3: Vercel (painel)
+| Rodada (horário de São Paulo) | Países |
+| --- | --- |
+| 06:17 | Brasil |
+| 12:17 | Reino Unido, Portugal, Espanha, França, Alemanha, Itália, Holanda, Bélgica, Irlanda e Áustria |
+| 18:17 | Estados Unidos, Canadá, México, Austrália e Japão |
 
-1. Em vercel.com, clique em **Add New → Project** e importe o repositório.
+País sem palavra-chave ativa não é buscado. Bélgica, Irlanda, Áustria, Canadá, México e Austrália vêm sem palavras: adicione na tela Palavras-chave, no idioma do país. Para mudar as rodadas, edite `.github/workflows/coletar.yml`.
+
+A busca na Meta e os alertas rodam nas três rodadas. Criativos, mídia, Google, TikTok, Reclame Aqui, páginas, IA e limpeza rodam só na de 18:17, para caber nos planos grátis do Supabase e do Gemini.
+
+Em repositório privado, a cota grátis do GitHub Actions não cobre as três rodadas por dia. Em repositório público não tem limite de minutos, mas os registros das coletas ficam visíveis, com as palavras-chave.
+
+## Custos
+
+Tudo roda nos planos grátis, e nenhum deles cobra sozinho quando o limite acaba.
+
+| Serviço | Limite grátis | Ao passar do limite |
+| --- | --- | --- |
+| GitHub Actions | sem limite de minutos em repositório público | a coleta agendada é pausada após 60 dias sem atividade no repositório |
+| Supabase | 500 MB de banco, 1 GB de arquivos, 5 GB de tráfego | depois de uma carência, pode bloquear o projeto até virar o ciclo |
+| Vercel Hobby | 100 GB de tráfego e 4 horas de CPU por mês | o recurso para até completar 30 dias |
+| Gemini | cota gratuita, sem faturamento ligado | a etapa de IA para e continua no dia seguinte |
+| Telegram | grátis | sem limite relevante aqui |
+
+A limpeza diária mantém o projeto dentro do plano do Supabase. Anúncio com menos de 3 cópias sai após 14 dias sem aparecer, e os demais após 60. Oferta no funil ou na espionagem fica. Os vídeos têm teto de 350 MB dos anúncios e 150 MB do TikTok, em `MEDIA_BUDGET_MB` e `TIKTOK_BUDGET_MB`.
+
+A Vercel Hobby é só para uso pessoal não comercial. Se o painel servir ao seu negócio, confirme com o suporte da Vercel ou use o Pro.
+
+## Instalação
+
+### 1. Supabase
+
+1. Crie um projeto em supabase.com, na região São Paulo.
+2. Em **SQL Editor**, cole todo o `supabase/schema.sql` e clique em **Run**.
+3. Em **Project Settings → API**, copie a **Project URL** (`SUPABASE_URL`) e a **service_role key** (`SUPABASE_SERVICE_ROLE_KEY`). Essa chave é secreta.
+
+### 2. GitHub
+
+1. Em **Settings → Secrets and variables → Actions**, crie os secrets `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`.
+2. Na aba **Variables**, crie `PANEL_URL` com o endereço do seu painel.
+3. Em **Actions**, ligue os workflows. Em fork eles vêm desligados.
+4. Rode a primeira coleta em **Actions → Coletar ofertas → Run workflow**.
+
+### 3. Vercel
+
+1. Em **Add New → Project**, importe o repositório.
 2. Em **Root Directory**, coloque `web`.
-3. Em **Environment Variables**, adicione:
-   - `SUPABASE_URL`;
-   - `SUPABASE_SERVICE_ROLE_KEY`;
-   - `DASHBOARD_PASSWORD`, a senha para entrar no painel. Qualquer usuário serve, só a senha é conferida.
+3. Adicione `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e `DASHBOARD_PASSWORD`. Qualquer usuário serve no login, só a senha é conferida.
 4. Clique em **Deploy**.
 
----
+Sem `DASHBOARD_PASSWORD`, o painel fica aberto para quem tiver o link.
 
-## Testar no seu computador
+## Recursos opcionais
+
+| Recurso | O que precisa |
+| --- | --- |
+| Nicho, promessa, risco, mapa da página e "Minha versão" pela IA | secret `GEMINI_API_KEY` no GitHub e na Vercel |
+| Alertas no Telegram | secrets `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` no GitHub |
+| Vigia diário da coleta | `CRON_SECRET`, `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` na Vercel |
+
+Chave do Gemini: entre em aistudio.google.com/apikey e clique em **Create API key**. Na cota grátis, os textos enviados podem treinar os modelos do Google. Aqui só vão textos públicos de anúncios e páginas.
+
+Bot do Telegram: fale com **@BotFather**, mande `/newbot`, copie o token, mande uma mensagem para o bot e pegue o `chat.id` em `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+
+## Modo demonstração
+
+Com `VISIONSPY_DEMO=1`, o painel usa dados inventados no lugar do Supabase:
+
+```bash
+cd web && npm install && VISIONSPY_DEMO=1 npm run dev
+```
+
+## Coleta no seu computador
 
 ```bash
 cd collector
 npm install
 npx playwright install chromium
-npm test                       # testes do leitor
-HEADFUL=1 npm run collect:meta # abre o navegador; sem as variáveis do Supabase salva em ./out
+npm test
+HEADFUL=1 npm run collect:meta
 ```
 
-## Modo demonstração
+## Limitações
 
-Com `RADAR_DEMO=1`, o painel usa dados de exemplo em vez do Supabase. Serve para testar o visual localmente ou mostrar a alguém sem expor o banco:
-
-```bash
-cd web && npm install && RADAR_DEMO=1 npm run dev
-```
-
-## Ajustes
-
-- **Palavras-chave e anunciantes ignorados:** pela página *Palavras-chave* do painel.
-- **Profundidade:** o robô rola cada busca até parar de carregar anúncios (`META_SCROLLS`, padrão 25 rolagens; `META_MAX_CARDS`, padrão 150 anúncios).
-- **Horários:** mude o `cron` em `.github/workflows/coletar.yml`.
-
-## Recursos extras (todos gratuitos)
-
-| Recurso | O que faz | Precisa configurar |
-| --- | --- | --- |
-| Ofertas duplicadas | Anúncios sem site do mesmo anunciante ou da mesma página entram na oferta com site | nada |
-| Tipo de destino | Marca se o anúncio leva para site, WhatsApp, Instagram, formulário, mensagem ou app | nada |
-| Raio-X da página | Visita cada página de vendas 1x por semana: plataforma, checkout, preços, parcelas, pagamento na entrega, VSL, contador, pixels | nada |
-| IA (Gemini) | Nicho, tipo, público, promessa, mecanismo, oferta e risco de reprovação | secret `GEMINI_API_KEY` |
-| Criativos | Guarda as imagens dos anúncios em webp no Supabase Storage (o link do Facebook expira) | nada |
-| Alertas | Telegram quando uma oferta entra no top 20 ou dispara em cópias | secrets `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` |
-| Funil | ☆ no ranking, status e notas por oferta, página `/funil` | nada |
-| Status | Página `/status` com a saúde de cada etapa + aviso de falha no Telegram + vigia diário da Vercel | Vercel: `CRON_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
-
-### Chave do Gemini
-1. Entre em aistudio.google.com/apikey com sua conta Google e clique em **Create API key**.
-2. No GitHub: **Settings → Secrets and variables → Actions → New repository secret**, nome `GEMINI_API_KEY`.
-
-A cota grátis do Gemini pode usar os textos enviados para treinar os modelos do Google. Aqui só vão textos públicos de anúncios e páginas.
-
-### Bot do Telegram
-1. No Telegram, fale com **@BotFather**, mande `/newbot` e escolha um nome. Ele devolve o token.
-2. Mande qualquer mensagem para o seu bot novo.
-3. Abra `https://api.telegram.org/bot<TOKEN>/getUpdates` no navegador e copie o número em `"chat":{"id": ...}`.
-4. No GitHub, crie os secrets `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID`. Na Vercel, crie as mesmas variáveis e mais `CRON_SECRET` (qualquer texto longo e aleatório).
-
-### Banco
-Instalação nova: rode `supabase/schema.sql`. Instalação antiga: rode, em ordem, os arquivos de `supabase/migrations/` que ainda não rodou.
-
-### Repositório público
-Com o repositório público, o GitHub Actions não tem limite de minutos. Chaves e senhas ficam nos *secrets* e nunca aparecem. Os registros das coletas (logs) ficam visíveis, mas só mostram dados públicos de anúncios. O GitHub desliga agendamentos de repositórios públicos sem atividade por 60 dias; o vigia da Vercel avisa no Telegram se a coleta parar.
-
-## Trocar pelo provedor pago depois
-
-O robô usa a interface `MetaAdSource` (`collector/src/types.ts`). Para usar Apify, SearchAPI ou similar:
-
-1. crie uma classe que implemente `searchKeyword(term)` devolvendo os mesmos campos;
-2. troque `makeMetaSource()` em `collector/src/run.ts`.
-
-O resto (banco, score, painel) não muda.
-
-## Limitações conhecidas
-
-- **Bloqueio da Meta.** A Meta pode pedir login para IPs de servidor como o GitHub Actions. Quando isso acontece, a coleta falha com uma mensagem clara e **não** sobrescreve os dados do dia. Se acontecer com frequência:
-  - rode o coletor no seu computador com um agendador;
-  - ou passe para o provedor pago.
-- **Uso dos dados.** O robô lê páginas públicas, mas a raspagem automática vai contra os termos de uso da Meta. Use para pesquisa e para modelar estrutura de oferta, não para copiar criativos, textos ou marcas de terceiros.
-- **Ofertas de saúde.** Muitas trazem promessas que derrubam conta de anúncios. Confira as alegações antes de modelar.
+- **Bloqueio da Meta.** A Meta pode pedir login para IPs de servidor. Quando isso acontece, a coleta avisa e não sobrescreve os dados do dia. Se for frequente, rode o coletor no seu computador ou troque a fonte pela interface `MetaAdSource` (`collector/src/types.ts`).
+- **Histórico.** Tendência e cópias contra 7 dias atrás precisam de uma semana de coleta. Investimento, fase e criativos lançados funcionam desde o primeiro dia, porque usam a data que a própria Meta mostra.
+- **Marcas grandes.** Anunciante com mais de 1.000 anúncios no Google fica escondido por padrão. Dá para mostrar com um clique.
+- **Termos de uso.** O robô lê páginas públicas, mas a coleta automática vai contra os termos da Meta. Use para pesquisa e para modelar estrutura de oferta, não para copiar criativos, textos ou marcas.
+- **Saúde.** Muitas ofertas trazem promessas que derrubam conta de anúncios. Confira as alegações antes de modelar.

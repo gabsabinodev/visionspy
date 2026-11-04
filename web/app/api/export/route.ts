@@ -22,6 +22,7 @@ export async function GET(req: Request) {
     "paginas", "google_ads", "rodando_desde", "nicho", "tipo", "promessa", "mecanismo", "oferta_ia", "risco", "plataforma", "checkout",
     "preco_min", "preco_max", "parcelas", "pagamento_na_entrega", "vsl", "pixels", "status_funil", "nota", "palavras_chave", "outras_paginas", "texto_do_anuncio",
     "pais", "moeda", "dias_no_ar", "anuncios_30d_mais", "anuncios_ativos", "criativos_novos_7d", "esfriando", "espionada", "kit_pronto",
+    "investimento_estimado_mes", "moeda_investimento", "fase", "momentum", "criativos_lancados_7d", "clones",
   ];
   const num = (v: number | string | null) => (v === null || v === undefined ? "" : String(v).replace(".", ","));
   const rows = offers.map((o, i) => [
@@ -31,6 +32,7 @@ export async function GET(req: Request) {
     num(o.price_min), num(o.price_max), o.installments, o.cod ? "sim" : "", o.has_vsl ? "sim" : "", o.pixels, o.status, o.note,
     o.keywords, o.advertisers.slice(1), o.sample_text,
     o.country, o.currency, o.days_running, o.long_runners, o.ads_active, o.new_ads_7d, o.cooling ? "sim" : "", o.watched ? "sim" : "", o.has_kit ? "sim" : "",
+    o.est_month, o.est_currency, o.phase, o.momentum, o.launched_7d, o.clones,
   ]);
   // separador ";" e BOM: abre certo no Excel em português
   const csv = "﻿" + [header, ...rows].map((r) => r.map(cell).join(";")).join("\r\n");
@@ -38,7 +40,7 @@ export async function GET(req: Request) {
   return new Response(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="radar-ofertas-${day}.csv"`,
+      "Content-Disposition": `attachment; filename="visionspy-ofertas-${day}.csv"`,
       "Cache-Control": "no-store",
     },
   });

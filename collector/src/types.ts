@@ -8,6 +8,7 @@ export interface MetaAd {
   body: string;
   startDate: string | null; // ISO yyyy-mm-dd
   copies: number;           // "X anúncios usam esse criativo e esse texto"
+  rank?: number | null;     // posição na busca (a Meta devolve os mais vistos primeiro)
   cta?: string | null;        // botão do anúncio ("Saiba mais", "Enviar mensagem"...)
   destType?: DestType | null; // para onde o anúncio leva
   pageUrl?: string | null;    // página do anunciante no Facebook

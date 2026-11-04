@@ -7,6 +7,7 @@ import { myVersionPrompt, type MyInput } from "@/lib/kit";
 
 const refresh = (key: string) => {
   revalidatePath("/");
+  revalidatePath("/ofertas");
   revalidatePath("/funil");
   revalidatePath("/espionagem");
   revalidatePath(`/oferta/${encodeURIComponent(key)}`);
@@ -78,6 +79,43 @@ export async function addWatch(form: FormData) {
   if (!term || !/^[A-Z]{2}$/.test(country)) return;
   await db().from("watchlist").upsert({ label: term, term, country }, { onConflict: "term,country" });
   revalidatePath("/espionagem");
+}
+
+/** Ignora um anunciante ou domínio: some da mineração e do ranking na hora, sem esperar a coleta. */
+export async function ignoreAdvertiser(form: FormData) {
+  const name = String(form.get("name") ?? "").trim().slice(0, 120);
+  if (!name) return;
+  await db().from("ignored_advertisers").upsert({ name });
+  revalidatePath("/");
+  revalidatePath("/ofertas");
+  revalidatePath("/palavras-chave");
+}
+
+/** Adiciona uma palavra-chave sugerida à coleta. */
+export async function addKeywordTerm(form: FormData) {
+  const term = String(form.get("term") ?? "").trim().toLowerCase().slice(0, 80);
+  const country = String(form.get("country") ?? "BR").toUpperCase();
+  if (!term || !/^[A-Z]{2}$/.test(country)) return;
+  await db().from("keywords").upsert({ term, country, active: true }, { onConflict: "term,country" });
+  revalidatePath("/palavras-chave");
+}
+
+/** Guarda a combinação de filtros atual com um nome. */
+export async function saveView(form: FormData) {
+  const name = String(form.get("name") ?? "").trim().slice(0, 60);
+  const query = String(form.get("query") ?? "").slice(0, 500);
+  const page = String(form.get("page") ?? "/") === "/ofertas" ? "/ofertas" : "/";
+  if (!name) return;
+  await db().from("saved_views").insert({ name, query, page });
+  revalidatePath(page);
+}
+
+export async function deleteView(form: FormData) {
+  const id = Number(form.get("id"));
+  if (!Number.isFinite(id)) return;
+  await db().from("saved_views").delete().eq("id", id);
+  revalidatePath("/");
+  revalidatePath("/ofertas");
 }
 
 export async function removeWatch(form: FormData) {

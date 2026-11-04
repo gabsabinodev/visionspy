@@ -2,6 +2,7 @@ import Link from "next/link";
 import { COUNTRIES, countryName, creativeSrc, daysLabel, db, flag, fmtDate, TIKTOK_LIB, type OfferRow } from "@/lib/db";
 import { addWatch, removeWatch } from "../actions";
 import { Thumb } from "../bits";
+import { fmtMoney } from "@/lib/spend";
 
 export const dynamic = "force-dynamic";
 
@@ -29,20 +30,20 @@ export default async function Espionagem() {
 
   return (
     <>
-      <p className="comment">{"// concorrentes que o robô busca a cada coleta"}</p>
-      <h1>Espionagem</h1>
-      <p className="lede" style={{ marginBottom: 28 }}>
-        Cada item é buscado na Biblioteca da Meta em toda coleta, além das palavras-chave. Quando sair criativo novo, chega aviso no Telegram.
-        Dá para espionar direto da página da oferta (botão 👁) ou adicionar um site/nome aqui. Em Portugal, Reino Unido e no resto da
-        Europa o robô também busca o concorrente na biblioteca de anúncios do TikTok (no Brasil e nos EUA o TikTok não tem biblioteca pública).
-      </p>
+      <header className="page-head">
+        <h1>Espionagem</h1>
+        <p>
+          O robô busca cada alvo na Biblioteca da Meta em toda coleta e avisa no Telegram quando sai criativo novo. Na Europa e no Reino Unido
+          ele também olha a biblioteca do TikTok. No Brasil e nos EUA o TikTok não tem biblioteca pública.
+        </p>
+      </header>
 
-      <section className="panel" style={{ marginBottom: 20 }}>
-        <h2>Adicionar</h2>
+      <section className="panel stack">
+        <h2>Adicionar alvo</h2>
         <form action={addWatch} className="inline-form">
           <input className="field" name="term" placeholder="site (loja.com.br) ou nome da página no Facebook" required aria-label="Site ou nome da página" />
           <select className="field country-sel" name="country" defaultValue="BR" aria-label="País">
-            {Object.entries(COUNTRIES).map(([c, v]) => <option key={c} value={c}>{v.flag} {v.name}</option>)}
+            {Object.entries(COUNTRIES).map(([c, v]) => <option key={c} value={c}>{v.name}</option>)}
           </select>
           <button className="btn">Espionar</button>
         </form>
@@ -52,14 +53,14 @@ export default async function Espionagem() {
         <table className="ranking">
           <thead>
             <tr>
-              <th>alvo</th>
-              <th className="n">score</th>
-              <th className="n">ativos</th>
-              <th className="n">novos_7d</th>
-              <th className="n">30d+</th>
-              <th>no_ar</th>
-              <th>último_criativo</th>
-              <th title="Anúncios nos últimos 30 dias na biblioteca do TikTok (só Europa e Reino Unido)">tiktok_30d</th>
+              <th>Alvo</th>
+              <th className="n">Investimento</th>
+              <th className="n">Ativos</th>
+              <th className="n">Novos 7d</th>
+              <th className="n">Com 30+ dias</th>
+              <th>No ar</th>
+              <th>Último criativo</th>
+              <th title="Anúncios nos últimos 30 dias na biblioteca do TikTok (só Europa e Reino Unido)">TikTok 30d</th>
               <th></th>
             </tr>
           </thead>
@@ -69,28 +70,32 @@ export default async function Espionagem() {
               const last = w.offer_key ? newest.get(w.offer_key) : undefined;
               return (
                 <tr key={w.id}>
-                  <td className="offer-cell">
+                  <td>
+                    <div className="offer-cell">
                     <Thumb src={o ? creativeSrc(o.thumb_path, o.thumb_url) : null} alt={`Criativo de ${w.label}`} />
                     <div className="offer-main">
-                      <span className="flag" title={countryName(w.country)}>{flag(w.country)}</span>
-                      {w.offer_key ? <Link className="offer-name" href={`/oferta/${encodeURIComponent(w.offer_key)}`}>{o?.advertiser ?? w.label}</Link> : <span className="offer-name">{w.label}</span>}
-                      <div className="domain" style={{ marginLeft: 0 }}>busca: &quot;{w.term}&quot;</div>
-                      {!w.offer_key && <div className="dim mono" style={{ fontSize: 12 }}>aguardando a próxima coleta encontrar a oferta</div>}
-                      {o?.cooling && <div className="meta-line"><span className="badge cold">🧊 esfriando</span></div>}
+                      <div className="offer-title">
+                        {w.offer_key ? <Link className="offer-name" href={`/oferta/${encodeURIComponent(w.offer_key)}`}>{o?.advertiser ?? w.label}</Link> : <span className="offer-name">{w.label}</span>}
+                        <span className="country-tag" title={countryName(w.country)}>{flag(w.country)}</span>
+                      </div>
+                      <div className="domain">Busca: {w.term}</div>
+                      {!w.offer_key && <div className="domain">Aguardando a próxima coleta encontrar a oferta</div>}
+                      {o?.cooling && <div className="badges"><span className="tag cold">Esfriando</span></div>}
+                    </div>
                     </div>
                   </td>
-                  <td className="n">{o?.score ?? "—"}</td>
+                  <td className="n">{o ? fmtMoney(o.est_month, o.est_currency) : "—"}</td>
                   <td className="n">{o?.ads_active ?? "—"}</td>
                   <td className="n">{o ? (o.new_ads_7d > 0 ? <span className="up">+{o.new_ads_7d}</span> : 0) : "—"}</td>
                   <td className="n">{o?.long_runners ?? "—"}</td>
-                  <td className="mono date">{o ? daysLabel(o.days_running) : "—"}</td>
-                  <td className="mono date">{last ? new Date(last).toLocaleDateString("pt-BR") : "—"}</td>
-                  <td className="mono date">
+                  <td className="date">{o ? daysLabel(o.days_running) : "—"}</td>
+                  <td className="date">{last ? new Date(last).toLocaleDateString("pt-BR") : "—"}</td>
+                  <td className="date">
                     {TIKTOK_LIB.has(w.country) ? (
                       <>
                         {ttTotal.has(w.id) ? <b>{ttTotal.get(w.id)!.toLocaleString("pt-BR")}</b> : <span className="dim">aguardando</span>}
-                        {ttRecent.get(w.id) && <div className="days">último {fmtDate(ttRecent.get(w.id)!)}</div>}
-                        <div><a className="ext-link" href={`https://library.tiktok.com/ads?region=${w.country}&adv_name=${encodeURIComponent(w.term.includes(".") && !w.term.includes(" ") ? w.term.split(".")[0] : w.label)}&query_type=1`} target="_blank" rel="noreferrer">biblioteca ↗</a></div>
+                        {ttRecent.get(w.id) && <div className="days">Último em {fmtDate(ttRecent.get(w.id)!)}</div>}
+                        <div><a className="linkish" href={`https://library.tiktok.com/ads?region=${w.country}&adv_name=${encodeURIComponent(w.term.includes(".") && !w.term.includes(" ") ? w.term.split(".")[0] : w.label)}&query_type=1`} target="_blank" rel="noreferrer">Abrir biblioteca</a></div>
                       </>
                     ) : <span className="dim" title="O TikTok só tem biblioteca pública na Europa e no Reino Unido">—</span>}
                   </td>
@@ -105,7 +110,7 @@ export default async function Espionagem() {
             })}
           </tbody>
         </table>
-        {!list.length && <div className="empty">Nenhum concorrente na espionagem ainda. Abra uma oferta e clique em 👁 espionar.</div>}
+        {!list.length && <div className="empty"><b>Nenhum alvo ainda.</b><p>Adicione um site acima ou clique no olho em qualquer oferta.</p></div>}
       </div>
     </>
   );

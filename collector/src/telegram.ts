@@ -20,4 +20,5 @@ export async function sendTelegram(html: string, doFetch: typeof fetch = fetch):
   return res.ok;
 }
 
-export const panelUrl = () => (process.env.PANEL_URL || "https://radar-ofertas-web.vercel.app").replace(/\/$/, "");
+/** Endereço do seu painel: defina a variável PANEL_URL no GitHub para os links dos alertas funcionarem. */
+export const panelUrl = () => (process.env.PANEL_URL || "").replace(/\/$/, "");

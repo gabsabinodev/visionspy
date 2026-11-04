@@ -3,7 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { demoClient } from "./demo";
 
 export function db(): SupabaseClient {
-  if (process.env.RADAR_DEMO === "1") return demoClient as unknown as SupabaseClient;
+  if (process.env.VISIONSPY_DEMO === "1") return demoClient as unknown as SupabaseClient;
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY nas variáveis da Vercel.");
@@ -66,22 +66,53 @@ export interface OfferRow {
   watched: boolean;
   has_kit: boolean;
   currency: string | null;
+  // mineração
+  launched_7d: number;
+  est_month: number;
+  est_month_brl: number;
+  est_currency: string;
+  phase: "teste" | "escalando" | "vencedor";
+  clones: number;
+  big_brand: boolean;
+  momentum: number;
 }
 
 /** Países que o robô sabe buscar (dá para adicionar outros nas palavras-chave). */
-export const COUNTRIES: Record<string, { flag: string; name: string; locale: string; currency: string }> = {
-  BR: { flag: "🇧🇷", name: "Brasil", locale: "pt-BR", currency: "BRL" },
-  US: { flag: "🇺🇸", name: "Estados Unidos", locale: "en-US", currency: "USD" },
-  GB: { flag: "🇬🇧", name: "Reino Unido", locale: "en-GB", currency: "GBP" },
-  PT: { flag: "🇵🇹", name: "Portugal", locale: "pt-PT", currency: "EUR" },
-  JP: { flag: "🇯🇵", name: "Japão", locale: "ja-JP", currency: "JPY" },
-  ES: { flag: "🇪🇸", name: "Espanha", locale: "es-ES", currency: "EUR" },
-  MX: { flag: "🇲🇽", name: "México", locale: "es-MX", currency: "MXN" },
-  CA: { flag: "🇨🇦", name: "Canadá", locale: "en-CA", currency: "CAD" },
-  AU: { flag: "🇦🇺", name: "Austrália", locale: "en-AU", currency: "AUD" },
+export const COUNTRIES: Record<string, { name: string; locale: string; currency: string; region: "br" | "europa" | "americas" | "outros" }> = {
+  BR: { name: "Brasil", locale: "pt-BR", currency: "BRL", region: "br" },
+  GB: { name: "Reino Unido", locale: "en-GB", currency: "GBP", region: "europa" },
+  PT: { name: "Portugal", locale: "pt-PT", currency: "EUR", region: "europa" },
+  ES: { name: "Espanha", locale: "es-ES", currency: "EUR", region: "europa" },
+  FR: { name: "França", locale: "fr-FR", currency: "EUR", region: "europa" },
+  DE: { name: "Alemanha", locale: "de-DE", currency: "EUR", region: "europa" },
+  IT: { name: "Itália", locale: "it-IT", currency: "EUR", region: "europa" },
+  NL: { name: "Holanda", locale: "nl-NL", currency: "EUR", region: "europa" },
+  BE: { name: "Bélgica", locale: "fr-BE", currency: "EUR", region: "europa" },
+  IE: { name: "Irlanda", locale: "en-IE", currency: "EUR", region: "europa" },
+  AT: { name: "Áustria", locale: "de-AT", currency: "EUR", region: "europa" },
+  US: { name: "Estados Unidos", locale: "en-US", currency: "USD", region: "americas" },
+  CA: { name: "Canadá", locale: "en-CA", currency: "CAD", region: "americas" },
+  MX: { name: "México", locale: "es-MX", currency: "MXN", region: "americas" },
+  AU: { name: "Austrália", locale: "en-AU", currency: "AUD", region: "outros" },
+  JP: { name: "Japão", locale: "ja-JP", currency: "JPY", region: "outros" },
 };
+export const EUROPE = Object.keys(COUNTRIES).filter((c) => COUNTRIES[c].region === "europa");
+/** O filtro de país aceita um país, "europa" ou "todos". */
+export const inPais = (pais: string, country: string | null | undefined) =>
+  pais === "todos" || (pais === "europa" ? EUROPE.includes(country ?? "") : (country ?? "BR") === pais);
+export const paisName = (pais: string) => (pais === "todos" ? "todos os países" : pais === "europa" ? "Europa" : countryName(pais));
+/** Moeda que a tela usa quando a pessoa não escolheu outra. */
+export function defaultMoeda(pais: string): "BRL" | "USD" | "EUR" | "GBP" {
+  if (pais === "europa") return "EUR";
+  const c = COUNTRIES[pais]?.currency;
+  return c === "BRL" || c === "EUR" || c === "GBP" || c === "USD" ? c : "USD";
+}
+/** Quanto 1 unidade da moeda vale em reais, pela tabela spend_model. */
+export const rateOf = (rows: { currency: string; fx_to_brl: number | string }[], moeda: string) =>
+  moeda === "BRL" ? 1 : Number(rows.find((r) => r.currency === moeda)?.fx_to_brl ?? 1);
 export const countryName = (c: string | null | undefined) => COUNTRIES[(c || "BR").toUpperCase()]?.name ?? (c || "BR");
-export const flag = (c: string | null | undefined) => COUNTRIES[(c || "BR").toUpperCase()]?.flag ?? (c || "").toUpperCase();
+/** Código do país: bandeira em emoji não aparece no Chrome do Windows. */
+export const flag = (c: string | null | undefined) => (c || "BR").toUpperCase();
 
 /** País de uma chave ("us:d:loja.com" -> "US"). */
 export const countryOfKey = (key: string) => key.match(/^([a-z]{2}):[ad]:/)?.[1].toUpperCase() ?? "BR";

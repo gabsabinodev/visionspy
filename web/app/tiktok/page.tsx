@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { countryName, db, flag, storageUrl } from "@/lib/db";
 import { Thumb } from "../bits";
+import { Icon } from "../icons";
 
 export const dynamic = "force-dynamic";
 
@@ -50,48 +51,43 @@ export default async function TikTok({ searchParams }: { searchParams: Search })
 
   return (
     <>
-      <p className="comment">{"// central de criativos do tiktok — anúncios em destaque"}</p>
-      <h1>TikTok Top Ads</h1>
-      <p className="lede" style={{ marginBottom: 24 }}>
-        Anúncios de leilão com melhor desempenho no TikTok, por país, lidos da Central de Criativos a cada coleta. Só aparecem os que o
-        anunciante autorizou mostrar, então é uma amostra boa para garimpar ângulos e criativos, não a lista completa.
-        {run && <> Última leitura: {new Date(run.finished_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{run.ok === false ? " (com falha — veja status.log)" : ""}.</>}
-      </p>
+      <header className="page-head">
+        <h1>TikTok</h1>
+        <p>
+          Anúncios de melhor desempenho na Central de Criativos, por país. Só aparecem os que o anunciante autorizou mostrar: é uma boa
+          amostra para garimpar ângulos, não a lista completa.
+          {run && <> Última leitura em {new Date(run.finished_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).replace(",", " às")}{run.ok === false ? ", com falha" : ""}.</>}
+        </p>
+      </header>
 
-      <section className="filterbar" aria-label="Filtros do TikTok">
-        <div className="fb-row">
-          <form className="search" action="/tiktok">
-            <span className="kw" aria-hidden="true">WHERE</span>
-            {pais !== "BR" && <input type="hidden" name="pais" value={pais} />}
-            {sort !== "curtidas" && <input type="hidden" name="ordem" value={sort} />}
-            {!recentes && <input type="hidden" name="periodo" value="tudo" />}
-            <input type="search" name="q" defaultValue={q} placeholder="texto do anúncio, marca ou setor" aria-label="Buscar no texto do anúncio, marca ou setor" />
-          </form>
+      <nav className="lenses" aria-label="País">
+        {[...new Set(["BR", "US", ...byCountry.keys()])].map((c) => (
+          <Link key={c} href={href({ pais: c === "BR" ? "" : c, n: null })} aria-current={pais === c ? "true" : undefined}>{countryName(c)} <span className="count">{byCountry.get(c) ?? 0}</span></Link>
+        ))}
+        <Link href={href({ pais: "todos", n: null })} aria-current={pais === "todos" ? "true" : undefined}>Todos</Link>
+      </nav>
+
+      <section className="offerbar" aria-label="Filtros do TikTok">
+        <form className="search" action="/tiktok">
+          <Icon name="key" size={18} />
+          {pais !== "BR" && <input type="hidden" name="pais" value={pais} />}
+          {sort !== "curtidas" && <input type="hidden" name="ordem" value={sort} />}
+          {!recentes && <input type="hidden" name="periodo" value="tudo" />}
+          <input type="search" name="q" defaultValue={q} placeholder="Busque texto do anúncio, marca ou setor" aria-label="Buscar no texto do anúncio, marca ou setor" />
+        </form>
+        <div className="sort-links" role="group" aria-label="Ordenar">
+          {(Object.keys(SORTS) as SortKey[]).map((k) => (
+            <Link key={k} href={href({ ordem: k === "curtidas" ? "" : k, n: null })} aria-current={sort === k ? "true" : undefined}>
+              {{ curtidas: "Curtidas", ctr: "CTR", novos: "Mais novos", posicao: "Posição" }[k]}
+            </Link>
+          ))}
         </div>
-        <div className="fb-row">
-          <div className="toggles" role="group" aria-label="País">
-            {[...new Set(["BR", "US", ...byCountry.keys()])].map((c) => (
-              <Link key={c} className="toggle" aria-pressed={pais === c} href={href({ pais: c === "BR" ? "" : c, n: null })}>
-                {flag(c)} {countryName(c)} <span className="dim">{byCountry.get(c) ?? 0}</span>
-              </Link>
-            ))}
-            <Link className="toggle" aria-pressed={pais === "todos"} href={href({ pais: "todos", n: null })}>🌎 todos</Link>
-          </div>
-        </div>
-        <div className="fb-status">
-          <span className="mono">
-            ({ads.length}{count && count > ads.length ? ` de ${count}` : ""} anúncios) · ordenar:{" "}
-            {(Object.keys(SORTS) as SortKey[]).map((k) => (
-              <Link key={k} className={`linkish${sort === k ? " on" : ""}`} style={{ marginLeft: 8 }} href={href({ ordem: k === "curtidas" ? "" : k, n: null })}>
-                {{ curtidas: "curtidas", ctr: "CTR", novos: "mais novos", posicao: "posição" }[k]}
-              </Link>
-            ))}
-          </span>
-          <Link className="btn ghost" href={href({ periodo: recentes ? "tudo" : "", n: null })}>{recentes ? "Mostrar também os antigos" : "Só os desta semana"}</Link>
-        </div>
+        <span className="offerbar-end">
+          <Link className="btn ghost" href={href({ periodo: recentes ? "tudo" : "", n: null })}>{recentes ? "Incluir antigos" : "Só desta semana"}</Link>
+        </span>
       </section>
 
-      {error && <div className="empty">Erro ao ler o banco: {error.message}. Se for tabela nova, rode a migração 006 no Supabase.</div>}
+      {error && <div className="notice bad"><b>Não consegui ler o TikTok.</b><p>{error.message}</p></div>}
 
       <div className="tt-grid">
         {ads.map((a) => {
@@ -101,30 +97,30 @@ export default async function TikTok({ searchParams }: { searchParams: Search })
             <article key={a.id} className="tt-card">
               <div className="tt-media">
                 <Thumb src={thumb} alt={`Anúncio do TikTok: ${a.ad_title?.slice(0, 60) ?? a.id}`} video />
-                {a.best_rank && <span className="g-cap mono">#{a.best_rank}</span>}
-                {isNew(a.first_seen) && <span className="tt-new mono">novo</span>}
+                {a.best_rank && <span className="g-cap">#{a.best_rank}</span>}
+                {isNew(a.first_seen) && <span className="tt-new">Novo</span>}
                 {video ? (
-                  <a className="g-dl" href={`${video}?download=${encodeURIComponent(`tiktok-${a.id}.mp4`)}`} title="Baixar o vídeo" aria-label="Baixar o vídeo">⬇</a>
+                  <a className="g-dl" href={`${video}?download=${encodeURIComponent(`tiktok-${a.id}.mp4`)}`} title="Baixar o vídeo" aria-label="Baixar o vídeo"><Icon name="download" size={15} /></a>
                 ) : a.video_url ? (
-                  <a className="g-dl ghost" href={a.video_url} target="_blank" rel="noreferrer" title="Abrir o vídeo no TikTok (o link expira)" aria-label="Abrir o vídeo">↗</a>
+                  <a className="g-dl ghost" href={a.video_url} target="_blank" rel="noreferrer" title="Abrir o vídeo no TikTok (o link expira)" aria-label="Abrir o vídeo"><Icon name="external" size={15} /></a>
                 ) : null}
               </div>
               <div className="tt-body">
-                <div className="meta-line" style={{ marginTop: 0 }}>
+                <div className="tt-meta">
                   {pais === "todos" && <span>{flag(a.country)}</span>}
                   {a.industry && <span>{a.industry}</span>}
                   {a.objective && <span className="dim">{a.objective}</span>}
                 </div>
                 {a.brand_name && <b className="tt-brand">{a.brand_name}</b>}
-                <p className="tt-title">{a.ad_title || <span className="dim">(sem texto)</span>}</p>
+                <p className="tt-title">{a.ad_title || <span className="dim">Sem texto</span>}</p>
                 <div className="xray">
                   <span><b>{(a.likes ?? 0).toLocaleString("pt-BR")}</b> curtidas</span>
                   {a.ctr !== null && <span title="Índice de CTR da Central de Criativos (0 a 1: quanto maior, melhor)">CTR <b>{Number(a.ctr).toFixed(2).replace(".", ",")}</b></span>}
                   {a.duration && <span>{Math.round(Number(a.duration))}s</span>}
                 </div>
                 <div className="sublinks">
-                  <a href={`https://ads.tiktok.com/business/creativecenter/topads/${a.id}/pc/pt?countryCode=${a.country}&period=30`} target="_blank" rel="noreferrer">ver na central ↗</a>
-                  {a.ad_title && <a href={`/?pais=${a.country}&q=${encodeURIComponent(a.brand_name || a.ad_title.split(/[.!?\n]/)[0].slice(0, 40))}`}>buscar na meta</a>}
+                  <a href={`https://ads.tiktok.com/business/creativecenter/topads/${a.id}/pc/pt?countryCode=${a.country}&period=30`} target="_blank" rel="noreferrer">Ver na central</a>
+                  {a.ad_title && <Link href={`/?pais=${a.country}&q=${encodeURIComponent(a.brand_name || a.ad_title.split(/[.!?\n]/)[0].slice(0, 40))}`}>Buscar na mineração</Link>}
                 </div>
               </div>
             </article>
@@ -132,9 +128,7 @@ export default async function TikTok({ searchParams }: { searchParams: Search })
         })}
       </div>
       {!ads.length && !error && (
-        <div className="empty">
-          Nenhum anúncio do TikTok ainda{recentes ? " nesta semana" : ""}. Eles entram na próxima coleta (etapa &ldquo;tiktok&rdquo;).
-        </div>
+        <div className="empty"><b>Nenhum anúncio do TikTok{recentes ? " nesta semana" : ""}.</b><p>Eles entram na próxima coleta.</p></div>
       )}
       {count !== null && count > ads.length && (
         <div className="more">

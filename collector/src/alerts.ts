@@ -60,15 +60,15 @@ export function formatAlerts(alerts: Alert[]): string {
     const r = a.row;
     const head = a.kind === "disparo" ? `🔥 ${flagOf(r.offer_key)}<b>${esc(r.advertiser)}</b> +${r.copies_growth} cópias na semana (${r.copies} no total)` : `🆕 ${flagOf(r.offer_key)}<b>${esc(r.advertiser)}</b> entrou no top 20 (score ${r.score})`;
     const sub = [r.domain, r.niche].filter(Boolean).map((s) => esc(String(s))).join(" · ");
-    return `${head}\n${sub ? sub + "\n" : ""}<a href="${link(r.offer_key)}">abrir no radar</a>`;
+    return `${head}\n${sub ? sub + "\n" : ""}<a href="${link(r.offer_key)}">abrir no VisionSpy</a>`;
   });
   const more = alerts.length > 12 ? `\n\n+ ${alerts.length - 12} no painel` : "";
-  return `📡 <b>Radar de Ofertas</b> · ${alerts.length} ${alerts.length === 1 ? "novidade" : "novidades"}\n\n${lines.join("\n\n")}${more}`;
+  return `📡 <b>VisionSpy</b> · ${alerts.length} ${alerts.length === 1 ? "novidade" : "novidades"}\n\n${lines.join("\n\n")}${more}`;
 }
 
 export function formatWelcome(top: RankRow[]): string {
   const lines = top.slice(0, 5).map((r, i) => `${i + 1}. <b>${esc(r.advertiser)}</b> · score ${r.score}${r.domain ? ` · ${esc(r.domain)}` : ""}`);
-  return `📡 <b>Radar de Ofertas ligado</b>\nA partir de agora aviso aqui quando uma oferta entrar no top 20 ou disparar em cópias.\n\nTop 5 de hoje:\n${lines.join("\n")}\n\n<a href="${panelUrl()}">abrir o painel</a>`;
+  return `📡 <b>VisionSpy ligado</b>\nA partir de agora aviso aqui quando uma oferta entrar no top 20 ou disparar em cópias.\n\nTop 5 de hoje:\n${lines.join("\n")}\n\n<a href="${panelUrl()}">abrir o painel</a>`;
 }
 
 export interface WatchNews {
@@ -79,7 +79,7 @@ export interface WatchNews {
 
 /** Espionagem: criativos novos de quem você segue. */
 export function formatWatch(items: WatchNews[]): string {
-  const lines = items.slice(0, 12).map((w) => `🕵️ <b>${esc(w.label)}</b> soltou ${w.newAds} ${w.newAds === 1 ? "criativo novo" : "criativos novos"}\n<a href="${link(w.key)}">ver no radar</a>`);
+  const lines = items.slice(0, 12).map((w) => `🕵️ <b>${esc(w.label)}</b> soltou ${w.newAds} ${w.newAds === 1 ? "criativo novo" : "criativos novos"}\n<a href="${link(w.key)}">ver no VisionSpy</a>`);
   return `📡 <b>Espionagem</b>\n\n${lines.join("\n\n")}`;
 }
 
@@ -94,7 +94,7 @@ export interface CoolingRow {
 /** Oferta do seu funil perdendo força (cópias caindo forte na semana). */
 export function formatCooling(rows: CoolingRow[]): string {
   const lines = rows.slice(0, 10).map(
-    (r) => `🧊 <b>${esc(r.advertiser)}</b> esfriando: ${r.copies_7d ?? "?"} → ${r.copies} cópias em 7 dias${r.status ? ` (no seu funil: ${esc(r.status)})` : ""}\n<a href="${link(r.offer_key)}">ver no radar</a>`,
+    (r) => `🧊 <b>${esc(r.advertiser)}</b> esfriando: ${r.copies_7d ?? "?"} → ${r.copies} cópias em 7 dias${r.status ? ` (no seu funil: ${esc(r.status)})` : ""}\n<a href="${link(r.offer_key)}">ver no VisionSpy</a>`,
   );
   return `📡 <b>Atenção no funil</b>\n\n${lines.join("\n\n")}`;
 }

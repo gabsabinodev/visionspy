@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
-  countryName, countryOfKey, creativeSrc, daysLabel, db, DEST_LABEL, flag, fmtDate, keyLabel, KIND_LABEL, libraryLink, priceRange, shortUrl,
+  countryName, countryOfKey, creativeSrc, daysLabel, db, DEST_LABEL, fmtDate, keyLabel, KIND_LABEL, libraryLink, priceRange, shortUrl,
   storageUrl, STATUSES, STATUS_LABEL, TIKTOK_LIB, type OfferRow,
 } from "@/lib/db";
 import type { KitStructure, MyInput } from "@/lib/kit";
-import { saveNote, setStatus, toggleWatch } from "../../actions";
+import { estRange, fmtMoney, heatOf, heatText, PHASE_LABEL } from "@/lib/spend";
+import { ignoreAdvertiser, saveNote, setStatus, toggleWatch } from "../../actions";
 import { CopyButton, Thumb } from "../../bits";
+import { Icon } from "../../icons";
 import { DownloadAll, MyVersionForm, TextActions } from "../../kit-client";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +27,7 @@ interface Landing {
   url: string; final_url: string | null; title: string | null; description: string | null; platform: string | null; checkout: string | null;
   prices: (number | string)[]; price_min: number | string | null; price_max: number | string | null; installments: string | null;
   cod: boolean; has_vsl: boolean; has_countdown: boolean; has_whatsapp: boolean; pixels: string[]; error: string | null; checked_at: string;
-  currency: string | null; shot_path: string | null;
+  currency: string | null; shot_path: string | null; tracking_ids: string[] | null;
 }
 
 /** Nome de arquivo para baixar: "constlivre-1234567.mp4" */
@@ -46,21 +48,21 @@ function Chart({ data }: { data: Snap[] }) {
     <svg className="chart" viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`Cópias do criativo de ${data[0].copies} para ${data[data.length - 1].copies}`}>
       <defs>
         <linearGradient id="fill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#2f6bff" stopOpacity="0.35" />
-          <stop offset="1" stopColor="#2f6bff" stopOpacity="0" />
+          <stop offset="0" stopColor="#ff9a3d" stopOpacity="0.32" />
+          <stop offset="1" stopColor="#ff9a3d" stopOpacity="0" />
         </linearGradient>
       </defs>
       {[0.25, 0.5, 0.75].map((f) => (
-        <line key={f} x1={P} x2={W - P} y1={P + f * (H - 2 * P)} y2={P + f * (H - 2 * P)} stroke="#142039" strokeDasharray="2 6" />
+        <line key={f} x1={P} x2={W - P} y1={P + f * (H - 2 * P)} y2={P + f * (H - 2 * P)} stroke="#2d2839" strokeDasharray="2 6" />
       ))}
-      <line x1={P} x2={W - P} y1={H - P} y2={H - P} stroke="#1f3159" />
+      <line x1={P} x2={W - P} y1={H - P} y2={H - P} stroke="#474057" />
       <path d={area} fill="url(#fill)" />
-      <path d={path("copies")} fill="none" stroke="#7fb2ff" strokeWidth={2.5} strokeLinejoin="round" />
-      <path d={path("cards")} fill="none" stroke="#2f6bff" strokeWidth={1.6} strokeDasharray="5 5" />
-      <text x={P} y={20}>máx {max} cópias</text>
+      <path d={path("copies")} fill="none" stroke="#ff9a3d" strokeWidth={2.4} strokeLinejoin="round" />
+      <path d={path("cards")} fill="none" stroke="#b7a5d8" strokeWidth={1.5} strokeDasharray="5 5" />
+      <text x={P} y={20}>Máximo de {max} cópias</text>
       <text x={P} y={H - 10}>{fmtDate(data[0].day)}</text>
       <text x={W - P} y={H - 10} textAnchor="end">{fmtDate(data[data.length - 1].day)}</text>
-      <text x={W - P} y={20} textAnchor="end">— cópias   - - no topo</text>
+      <text x={W - P} y={20} textAnchor="end">Linha cheia: cópias. Tracejada: anúncios entre os mais vistos</text>
     </svg>
   );
 }
@@ -68,7 +70,7 @@ function Chart({ data }: { data: Snap[] }) {
 const Row = ({ k, children }: { k: string; children: React.ReactNode }) => (
   <div className="kv"><dt>{k}</dt><dd>{children}</dd></div>
 );
-const yes = (v: boolean | null | undefined) => (v ? <span className="up">sim</span> : <span className="dim">não</span>);
+const yes = (v: boolean | null | undefined) => (v ? <span className="up">Sim</span> : <span className="dim">Não</span>);
 
 export default async function Oferta({ params }: { params: Promise<{ key: string }> }) {
   let key = decodeURIComponent((await params).key);
@@ -80,7 +82,7 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
   const [{ data: offer }, { data: snaps }, { data: ads }, { data: kitRow }] = await Promise.all([
     client.from("offer_ranking").select("*").eq("offer_key", key).maybeSingle(),
     client.from("offer_snapshots").select("day, cards, copies, pages").eq("offer_key", key).order("day").limit(90),
-    client.from("ads").select("library_id, advertiser, body, start_date, copies, last_seen, domain, landing_url, page_url, thumb_url, thumb_path, media_type, cta, media_path, video_url")
+    client.from("ads").select("library_id, advertiser, body, body_hash, start_date, copies, last_seen, domain, landing_url, page_url, thumb_url, thumb_path, media_type, cta, media_path, video_url")
       .eq("offer_key", key).order("copies", { ascending: false }).limit(60),
     client.from("offer_kits").select("structure, model, updated_at, my_input, my_version, my_model, my_updated_at").eq("offer_key", key).maybeSingle(),
   ]);
@@ -105,6 +107,20 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
   const dl = new Map(downloads.map((d) => [d.id, d]));
   const shot = page?.shot_path ? storageUrl("paginas", page.shot_path) : null;
   const st = kit?.structure ?? null;
+  // mesma operação: outras lojas com o mesmo pixel ou GTM. clones: mesmo texto de anúncio em outra oferta.
+  const trackIds = page?.tracking_ids ?? [];
+  const hashes = [...new Set(((ads ?? []) as { body_hash?: string }[]).map((a) => a.body_hash).filter(Boolean))] as string[];
+  const [{ data: sameLp }, { data: cloneRows }] = await Promise.all([
+    trackIds.length ? client.from("landing_pages").select("url").overlaps("tracking_ids", trackIds).limit(40) : Promise.resolve({ data: [] }),
+    hashes.length ? client.from("ad_feed").select("offer_key, advertiser, domain, est_month, est_currency").in("body_hash", hashes).neq("offer_key", key).limit(60) : Promise.resolve({ data: [] }),
+  ]);
+  const sameUrls = ((sameLp ?? []) as { url: string }[]).map((r) => r.url).filter((u) => u !== o?.landing_url);
+  const { data: sameRows } = sameUrls.length
+    ? await client.from("offer_ranking").select("offer_key, advertiser, domain, est_month, est_currency").in("landing_url", sameUrls).neq("offer_key", key).limit(12)
+    : { data: [] };
+  type Rel = { offer_key: string; advertiser: string; domain: string | null; est_month: number; est_currency: string };
+  const siblings = [...new Map(((sameRows ?? []) as Rel[]).map((r) => [r.offer_key, r])).values()];
+  const clones = [...new Map(((cloneRows ?? []) as Rel[]).map((r) => [r.offer_key, r])).values()];
   // espionagem no TikTok (biblioteca europeia): anúncios do concorrente espionado
   const { data: watchRows } = await client.from("watchlist").select("id, term, label").eq("offer_key", key).limit(1);
   const watchRow = (watchRows?.[0] as { id: number; term: string; label: string } | undefined) ?? null;
@@ -119,12 +135,24 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
 
   return (
     <>
-      <p className="comment"><Link href={country === "BR" ? "/" : `/?pais=${country}`}>ranking</Link>{" / "}<span>{flag(country)} {o?.domain ?? "oferta"}</span></p>
-      <h1>{name}</h1>
-      <p className="lede" style={{ marginBottom: 20 }}>
-        {o?.domain ? <a className="mono" href={`https://${o.domain}`} target="_blank" rel="noreferrer">{o.domain} ↗</a> : "Sem site próprio identificado."}
-        {o && o.advertisers.length > 1 && <> Rodando em {o.advertisers.length} páginas: {o.advertisers.join(", ")}.</>}
-      </p>
+      <nav className="crumb" aria-label="Caminho">
+        <Link href={country === "BR" ? "/ofertas" : `/ofertas?pais=${country}`}><Icon name="back" size={14} /></Link>
+        <Link href={country === "BR" ? "/ofertas" : `/ofertas?pais=${country}`}>Ofertas</Link>
+      </nav>
+      <header className="offer-head">
+        <h1>{name}</h1>
+        {o?.domain ? <a className="site" href={`https://${o.domain}`} target="_blank" rel="noreferrer">{o.domain}</a> : <span className="dim">Sem site próprio identificado</span>}
+        {o && o.advertisers.length > 1 && <span className="also">Rodando em {o.advertisers.length} páginas: {o.advertisers.join(", ")}</span>}
+        {o && (
+          <div className="badges">
+            <span className={`phase inline ph-${o.phase}`}>{PHASE_LABEL[o.phase]}</span>
+            <span className="tag">{countryName(country)}</span>
+            {o.niche && <Link className="tag" href={`/?nicho=${encodeURIComponent(o.niche)}`}>{o.niche}</Link>}
+            {o.cooling && <span className="tag cold">Esfriando</span>}
+            {o.risk === "alto" && <span className="tag warn" title={o.risk_reason ?? undefined}>Risco alto</span>}
+          </div>
+        )}
+      </header>
 
       <div className="offer-actions">
         {/* funil: status em um clique */}
@@ -132,7 +160,7 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
           <input type="hidden" name="key" value={key} />
           {STATUSES.map((s) => (
             <button key={s} name="status" value={o?.status === s ? "" : s} className={`status-btn s-${s}`} aria-pressed={o?.status === s}>
-              {STATUS_LABEL[s]}
+              {STATUS_LABEL[s].replace("★ ", "")}
             </button>
           ))}
         </form>
@@ -141,24 +169,52 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
             <form action={toggleWatch}>
               <input type="hidden" name="key" value={key} />
               <button className="status-btn watch" aria-pressed={o.watched} title="O robô busca esta oferta a cada coleta e avisa no Telegram quando sair criativo novo">
-                {o.watched ? "👁 espionando" : "👁 espionar"}
+                <Icon name="eye" size={15} /> {o.watched ? "Espionando" : "Espionar"}
               </button>
             </form>
           )}
-          <a className="status-btn" href={`/api/kit/${encodeURIComponent(key)}`} title="Tudo desta oferta num arquivo .md (estrutura, preços, anúncios, transcrições, sua versão)">⬇ exportar kit</a>
+          {o && (
+            <form action={ignoreAdvertiser}>
+              <input type="hidden" name="name" value={o.domain ?? o.advertiser} />
+              <button className="status-btn" title="Marca grande ou anunciante que não interessa: some da mineração e do ranking"><Icon name="ban" size={15} /> Ignorar</button>
+            </form>
+          )}
+          <a className="status-btn" href={`/api/kit/${encodeURIComponent(key)}`} title="Tudo desta oferta num arquivo .md (estrutura, preços, anúncios, transcrições, sua versão)"><Icon name="download" size={15} /> Exportar kit</a>
         </div>
       </div>
 
       {o && (
-        <div className="readout">
-          <div><b>{o.score}</b><span>score</span></div>
-          <div><b>{o.copies}</b><span>cópias do criativo</span></div>
-          <div><b className={o.copies_growth > 0 ? "up" : ""}>{o.copies_7d === null ? "novo" : `${o.copies_growth > 0 ? "+" : ""}${o.copies_growth}`}</b><span>cópias em 7 dias</span></div>
-          <div><b>{o.google_ads ?? "—"}</b><span>anúncios no Google</span></div>
-          <div><b>{daysLabel(o.days_running)}</b><span>no ar desde {fmtDate(o.oldest_start)}</span></div>
-          <div><b className={o.long_runners > 0 ? "up" : ""}>{o.long_runners}</b><span>anúncios com 30+ dias</span></div>
-          <div><b className={o.cooling ? "warn" : ""}>{o.ads_active}</b><span>{o.cooling ? "ativos · 🧊 esfriando" : "anúncios ativos"}</span></div>
-          <div><b>{o.new_ads_7d}</b><span>criativos novos (7 dias)</span></div>
+        <div className="stats" style={{ ["--heat-text" as string]: heatText(heatOf(o.est_month_brl)) }}>
+          <div title="Soma dos criativos ativos. É modelo, não gasto real."><b className="heat">{fmtMoney(o.est_month, o.est_currency)}</b><span>Por mês, faixa de {estRange(o.est_month, o.est_currency)}</span></div>
+          <div><b className={o.launched_7d > 0 ? "hot" : ""}>{o.launched_7d}</b><span>Criativos lançados em 7 dias</span></div>
+          <div><b className={o.copies_growth > 0 ? "hot" : o.cooling ? "cold" : ""}>{o.copies_7d === null ? "Nova" : `${o.copies_growth > 0 ? "+" : ""}${o.copies_growth}`}</b><span>Cópias contra 7 dias atrás</span></div>
+          <div><b>{o.copies}</b><span>Cópias ativas</span></div>
+          <div><b>{o.ads_active}</b><span>Anúncios ativos, {o.long_runners} com 30+ dias</span></div>
+          <div><b>{daysLabel(o.days_running)}</b><span>No ar desde {fmtDate(o.oldest_start)}</span></div>
+          <div><b>{o.google_ads?.toLocaleString("pt-BR") ?? "—"}</b><span>Anúncios no Google</span></div>
+        </div>
+      )}
+
+      {(siblings.length > 0 || clones.length > 0) && (
+        <div className={siblings.length > 0 && clones.length > 0 ? "split even" : "stack"}>
+          {clones.length > 0 && (
+            <section className="panel">
+              <h2>Clones desta oferta</h2>
+              <p className="muted">Mesmo texto de anúncio em outras lojas. Vários operadores no mesmo texto costuma ser produto validado.</p>
+              <ul className="links">
+                {clones.slice(0, 8).map((c) => <li key={c.offer_key} className="rel"><Link href={`/oferta/${encodeURIComponent(c.offer_key)}`}>{c.advertiser}</Link><span className="dim">{c.domain}</span><span className="dim">{fmtMoney(c.est_month, c.est_currency)}</span></li>)}
+              </ul>
+            </section>
+          )}
+          {siblings.length > 0 && (
+            <section className="panel">
+              <h2>Mesma operação</h2>
+              <p className="muted">Lojas com o mesmo pixel ou GTM desta página. Provavelmente é o mesmo dono testando outros produtos.</p>
+              <ul className="links">
+                {siblings.slice(0, 8).map((c) => <li key={c.offer_key} className="rel"><Link href={`/oferta/${encodeURIComponent(c.offer_key)}`}>{c.advertiser}</Link><span className="dim">{c.domain}</span><span className="dim">{fmtMoney(c.est_month, c.est_currency)}</span></li>)}
+              </ul>
+            </section>
+          )}
         </div>
       )}
 
@@ -168,10 +224,10 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
           <Chart data={(snaps ?? []) as Snap[]} />
         </section>
         <section className="panel">
-          <h2>Onde espionar</h2>
+          <h2>Onde olhar</h2>
           {o?.landing_url && (
             <div className="landing-box">
-              <span className="dim mono">pagina_de_vendas</span>
+              <span className="dim">Página de vendas</span>
               <span className="landing-wrap">
                 <a href={o.landing_url} target="_blank" rel="noreferrer noopener" title={o.landing_url}>{shortUrl(o.landing_url, 60)}</a>
                 <CopyButton text={o.landing_url} />
@@ -179,15 +235,15 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
             </div>
           )}
           {!o?.landing_url && o?.dest_type && o.dest_type !== "site" && (
-            <p className="muted" style={{ marginTop: 0 }}>Os anúncios levam para {DEST_LABEL[o.dest_type]}, não para uma página de vendas.</p>
+            <p className="muted">Os anúncios levam para {DEST_LABEL[o.dest_type]}, não para uma página de vendas.</p>
           )}
           <ul className="links">
-            {o?.page_url && <li><a href={o.page_url} target="_blank" rel="noreferrer">Página no Facebook ↗</a></li>}
-            <li><a href={libraryLink(o?.domain ?? name, country)} target="_blank" rel="noreferrer">Biblioteca da Meta ({flag(country)} {countryName(country)}) ↗</a></li>
-            {o?.domain && <li><a href={`https://adstransparency.google.com/?region=${country}&domain=${o.domain}`} target="_blank" rel="noreferrer">Transparência do Google ↗</a></li>}
-            {o?.domain && country === "BR" && <li><a href={`https://www.reclameaqui.com.br/busca/?q=${encodeURIComponent(o.domain.split(".")[0])}`} target="_blank" rel="noreferrer">Reclame Aqui ↗</a></li>}
+            {o?.page_url && <li><a href={o.page_url} target="_blank" rel="noreferrer">Página no Facebook</a></li>}
+            <li><a href={libraryLink(o?.domain ?? name, country)} target="_blank" rel="noreferrer">Biblioteca da Meta ({countryName(country)})</a></li>
+            {o?.domain && <li><a href={`https://adstransparency.google.com/?region=${country}&domain=${o.domain}`} target="_blank" rel="noreferrer">Transparência do Google</a></li>}
+            {o?.domain && country === "BR" && <li><a href={`https://www.reclameaqui.com.br/busca/?q=${encodeURIComponent(o.domain.split(".")[0])}`} target="_blank" rel="noreferrer">Reclame Aqui</a></li>}
           </ul>
-          {o?.keywords?.length ? <div className="chips" style={{ marginTop: 14 }}>{o.keywords.map((k) => <span key={k} className="tag-kw">{k}</span>)}</div> : null}
+          {o?.keywords?.length ? <><p className="muted" style={{ margin: "10px 0 6px", fontSize: 13.5 }}>Encontrada pelas buscas</p><div className="chips">{o.keywords.map((k) => <Link key={k} className="tag" href={`/ofertas?kw=${encodeURIComponent(k)}&lente=todas`}>{k}</Link>)}</div></> : null}
         </section>
       </div>
 
@@ -196,17 +252,17 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
           <h2>Raio-X da página</h2>
           {page && !page.error ? (
             <dl className="kvs">
-              {page.title && <Row k="título">{page.title}</Row>}
-              <Row k="feita em">{page.platform ?? <span className="dim">não identificado</span>}</Row>
-              <Row k="checkout">{page.checkout ?? <span className="dim">não identificado</span>}</Row>
-              <Row k="preços">{prices.length ? prices.map((p) => priceRange(p, p, page.currency)).join(" · ") : <span className="dim">nenhum na página</span>}</Row>
-              {page.installments && <Row k="parcelas">{page.installments}</Row>}
-              <Row k="pagamento na entrega">{yes(page.cod)}</Row>
-              <Row k="vídeo de vendas">{yes(page.has_vsl)}</Row>
-              <Row k="contador / escassez">{yes(page.has_countdown)}</Row>
-              <Row k="botão de WhatsApp">{yes(page.has_whatsapp)}</Row>
-              <Row k="pixels">{page.pixels?.length ? page.pixels.join(", ") : <span className="dim">nenhum detectado</span>}</Row>
-              <Row k="analisada em">{new Date(page.checked_at).toLocaleDateString("pt-BR")}</Row>
+              {page.title && <Row k="Título">{page.title}</Row>}
+              <Row k="Feita em">{page.platform ?? <span className="dim">Não identificado</span>}</Row>
+              <Row k="Checkout">{page.checkout ?? <span className="dim">Não identificado</span>}</Row>
+              <Row k="Preços">{prices.length ? prices.map((p) => priceRange(p, p, page.currency)).join(" · ") : <span className="dim">Nenhum na página</span>}</Row>
+              {page.installments && <Row k="Parcelas">{page.installments}</Row>}
+              <Row k="Pagamento na entrega">{yes(page.cod)}</Row>
+              <Row k="Vídeo de vendas">{yes(page.has_vsl)}</Row>
+              <Row k="Contador de escassez">{yes(page.has_countdown)}</Row>
+              <Row k="Botão de WhatsApp">{yes(page.has_whatsapp)}</Row>
+              <Row k="Pixels">{page.pixels?.length ? page.pixels.join(", ") : <span className="dim">Nenhum detectado</span>}</Row>
+              <Row k="Analisada em">{new Date(page.checked_at).toLocaleDateString("pt-BR")}</Row>
             </dl>
           ) : page?.error ? (
             <p className="muted">Não deu para abrir a página na última tentativa ({page.error.slice(0, 120)}). O robô tenta de novo em 7 dias.</p>
@@ -219,15 +275,15 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
           <h2>Leitura da IA</h2>
           {o?.niche ? (
             <dl className="kvs">
-              <Row k="nicho">{o.niche}</Row>
-              <Row k="tipo">{o.kind ? KIND_LABEL[o.kind] ?? o.kind : "—"}</Row>
-              {o.audience && <Row k="público">{o.audience}</Row>}
-              {o.promise && <Row k="promessa">{o.promise}</Row>}
-              {o.mechanism && <Row k="mecanismo">{o.mechanism}</Row>}
-              {o.offer && <Row k="oferta">{o.offer}</Row>}
-              <Row k="risco de reprovação">
-                <span className={o.risk === "alto" ? "warn" : o.risk === "baixo" ? "up" : ""}>{o.risk === "medio" ? "médio" : o.risk ?? "—"}</span>
-                {o.risk_reason && <span className="dim"> · {o.risk_reason}</span>}
+              <Row k="Nicho">{o.niche}</Row>
+              <Row k="Tipo">{o.kind ? KIND_LABEL[o.kind] ?? o.kind : "—"}</Row>
+              {o.audience && <Row k="Público">{o.audience}</Row>}
+              {o.promise && <Row k="Promessa">{o.promise}</Row>}
+              {o.mechanism && <Row k="Mecanismo">{o.mechanism}</Row>}
+              {o.offer && <Row k="Oferta">{o.offer}</Row>}
+              <Row k="Risco de reprovação">
+                <span className={o.risk === "alto" ? "warn" : o.risk === "baixo" ? "up" : ""}>{o.risk === "medio" ? "Médio" : o.risk === "alto" ? "Alto" : o.risk === "baixo" ? "Baixo" : "—"}</span>
+                {o.risk_reason && <span className="dim">. {o.risk_reason}</span>}
               </Row>
             </dl>
           ) : (
@@ -237,14 +293,14 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
       </div>
 
       {/* ---------- Kit de modelagem ---------- */}
-      <section className="panel kit" id="kit" style={{ marginBottom: 20 }}>
+      <section className="panel kit stack" id="kit">
         <div className="kit-head">
           <h2>Kit de modelagem</h2>
-          <span className="dim mono">{st ? `mapa por ${kit?.model ?? "IA"} · ${new Date(kit!.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
+          <span>{st ? `Mapa feito em ${new Date(kit!.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
         </div>
         <div className="kit-grid">
           <div className="shot-col">
-            <span className="dim mono">print_da_pagina</span>
+            <span>Print da página</span>
             {shot ? (
               <a className="shot" href={shot} target="_blank" rel="noreferrer" title="Abrir o print da página inteira">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -253,22 +309,22 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
             ) : (
               <p className="muted">{o?.landing_url ? "O robô tira o print da página inteira (no celular) na próxima coleta." : "Sem página de vendas."}</p>
             )}
-            {shot && <a className="ext-link" href={shot} target="_blank" rel="noreferrer">abrir inteiro ↗</a>}
+            {shot && <a className="linkish" href={shot} target="_blank" rel="noreferrer">Abrir inteiro</a>}
           </div>
           <div className="map-col">
             {st ? (
               <>
                 {st.resumo && <p className="kit-sum">{st.resumo}</p>}
                 <dl className="kvs">
-                  {st.angulo && <Row k="ângulo">{st.angulo}</Row>}
-                  {st.promessa && <Row k="promessa">{st.promessa}</Row>}
-                  {st.mecanismo && <Row k="mecanismo">{st.mecanismo}</Row>}
-                  {st.funil && <Row k="funil">{st.funil}</Row>}
+                  {st.angulo && <Row k="Ângulo">{st.angulo}</Row>}
+                  {st.promessa && <Row k="Promessa">{st.promessa}</Row>}
+                  {st.mecanismo && <Row k="Mecanismo">{st.mecanismo}</Row>}
+                  {st.funil && <Row k="Funil">{st.funil}</Row>}
                 </dl>
                 <h3>Estrutura da página</h3>
                 <ol className="sections">
                   {(st.secoes ?? []).map((x, i) => (
-                    <li key={i}><span className="sec-type mono">{x.tipo}</span> <b>{x.titulo}</b> <span className="dim">— {x.resumo}</span></li>
+                    <li key={i}><span className="sec-type">{x.tipo}</span> <b>{x.titulo}</b> <span className="dim">{x.resumo}</span></li>
                   ))}
                 </ol>
                 <h3>Oferta</h3>
@@ -298,7 +354,7 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
         </div>
 
         <div className="my-version">
-          <h3>Minha versão <span className="dim mono">// a IA escreve página, ganchos, roteiros e anúncios para o SEU produto, na mesma estrutura</span></h3>
+          <h3>Minha versão <span className="sub">A IA escreve página, ganchos, roteiros e anúncios para o seu produto, na mesma estrutura</span></h3>
           <MyVersionForm
             offerKey={key}
             hasVersion={!!kit?.my_version}
@@ -311,7 +367,7 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
           {kit?.my_version && (
             <div className="md-out">
               <div className="md-bar">
-                <span className="dim mono">{kit.my_model} · {kit.my_updated_at ? new Date(kit.my_updated_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : ""}</span>
+                <span>{kit.my_model}, {kit.my_updated_at ? new Date(kit.my_updated_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : ""}</span>
                 <TextActions text={kit.my_version} fileName={`minha-versao-${keyLabel(key).replace(/[^a-z0-9.]+/gi, "-")}.md`} />
               </div>
               <pre className="md">{kit.my_version}</pre>
@@ -320,7 +376,7 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
         </div>
       </section>
 
-      <section className="panel" style={{ marginBottom: 32 }}>
+      <section className="panel stack">
         <h2>Minhas notas</h2>
         <form action={saveNote} className="note-form">
           <input type="hidden" name="key" value={key} />
@@ -332,15 +388,15 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
       {gallery.length > 0 && (
         <>
           <div className="section-head">
-            <h2>Criativos <span className="dim mono" style={{ fontSize: 14 }}>[{gallery.length}]</span></h2>
+            <h2>Criativos <span className="dim">{gallery.length}</span></h2>
             <DownloadAll files={downloads.map((d) => ({ url: d.url, name: d.name }))} zipName={`criativos-${keyLabel(key).replace(/[^a-z0-9.]+/gi, "-")}.zip`} />
           </div>
           {!downloads.length && (
-            <p className="muted" style={{ marginTop: -6 }}>
-              O robô guarda o vídeo/imagem original dos 3 melhores anúncios das ofertas prioritárias (seu funil, espionagem e top 40). Esta ainda não tem arquivos guardados — favorite ou espione para entrar na fila.
+            <p className="muted" style={{ marginBottom: 10 }}>
+              O robô guarda o arquivo original dos 3 melhores anúncios das ofertas prioritárias: funil, espionagem e as 40 primeiras. Favorite ou espione esta oferta para entrar na fila.
             </p>
           )}
-          <div className="gallery" style={{ marginBottom: 32 }}>
+          <div className="gallery stack">
             {gallery.map((a) => {
               const d = dl.get(a.library_id);
               return (
@@ -348,11 +404,11 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
                   <a href={`https://www.facebook.com/ads/library/?id=${a.library_id}`} target="_blank" rel="noreferrer">
                     <Thumb src={creativeSrc(a.thumb_path, a.thumb_url)} alt={`Criativo de ${a.advertiser}`} video={a.media_type === "video"} />
                   </a>
-                  <span className="g-cap mono">{a.copies}×</span>
+                  <span className="g-cap">{a.copies}×</span>
                   {d ? (
-                    <a className="g-dl" href={`${d.url}?download=${encodeURIComponent(d.name)}`} download={d.name} title={`Baixar ${d.name}`} aria-label={`Baixar ${a.media_type === "video" ? "vídeo" : "imagem"}`}>⬇</a>
+                    <a className="g-dl" href={`${d.url}?download=${encodeURIComponent(d.name)}`} download={d.name} title={`Baixar ${d.name}`} aria-label={`Baixar ${a.media_type === "video" ? "vídeo" : "imagem"}`}><Icon name="download" size={15} /></a>
                   ) : a.video_url || a.thumb_url ? (
-                    <a className="g-dl ghost" href={a.video_url ?? a.thumb_url!} target="_blank" rel="noreferrer" title="Abrir o arquivo no Facebook (o link expira em poucos dias)" aria-label="Abrir arquivo original">↗</a>
+                    <a className="g-dl ghost" href={a.video_url ?? a.thumb_url!} target="_blank" rel="noreferrer" title="Abrir o arquivo no Facebook (o link expira em poucos dias)" aria-label="Abrir arquivo original"><Icon name="external" size={15} /></a>
                   ) : null}
                 </div>
               );
@@ -362,10 +418,10 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
       )}
 
       {TIKTOK_LIB.has(country) && watchRow && (
-        <section className="panel" style={{ marginBottom: 32 }}>
+        <section className="panel stack">
           <div className="section-head">
-            <h2>TikTok <span className="dim mono" style={{ fontSize: 13 }}>// biblioteca europeia · últimos 30 dias{tiktokTotal !== null ? ` · ${tiktokTotal.toLocaleString("pt-BR")} anúncios` : ""}</span></h2>
-            <a className="ext-link" href={`https://library.tiktok.com/ads?region=${country}&adv_name=${encodeURIComponent(watchRow.term.includes(".") && !watchRow.term.includes(" ") ? watchRow.term.split(".")[0] : watchRow.label)}&query_type=1`} target="_blank" rel="noreferrer">abrir na biblioteca ↗</a>
+            <h2>TikTok <span className="dim">Biblioteca europeia, últimos 30 dias{tiktokTotal !== null ? `, ${tiktokTotal.toLocaleString("pt-BR")} anúncios` : ""}</span></h2>
+            <a className="linkish" href={`https://library.tiktok.com/ads?region=${country}&adv_name=${encodeURIComponent(watchRow.term.includes(".") && !watchRow.term.includes(" ") ? watchRow.term.split(".")[0] : watchRow.label)}&query_type=1`} target="_blank" rel="noreferrer">Abrir na biblioteca</a>
           </div>
           {tiktokAds.length ? (
             <div className="tt-spy">
@@ -373,20 +429,20 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
                 <figure key={t.id} style={{ margin: 0 }}>
                   <Thumb src={t.thumb_path ? storageUrl("criativos", t.thumb_path) : t.cover_url} alt={`Anúncio no TikTok de ${t.advertiser}`} video />
                   <figcaption>
-                    <b>{t.advertiser}</b> · {fmtDate(t.first_shown)} → {fmtDate(t.last_shown)}
-                    {t.audience && <> · {t.audience} pessoas</>}
+                    <b>{t.advertiser}</b>, de {fmtDate(t.first_shown)} a {fmtDate(t.last_shown)}
+                    {t.audience && <>, {t.audience} pessoas</>}
                     {t.title && <div className="dim">{t.title.slice(0, 90)}</div>}
                   </figcaption>
                 </figure>
               ))}
             </div>
           ) : (
-            <p className="muted" style={{ margin: 0 }}>A busca no TikTok entra na próxima coleta.</p>
+            <p className="muted">A busca no TikTok entra na próxima coleta.</p>
           )}
         </section>
       )}
 
-      <h2>Anúncios coletados <span className="dim mono" style={{ fontSize: 14 }}>[{list.length}]</span></h2>
+      <div className="section-head"><h2>Anúncios coletados <span className="dim">{list.length}</span></h2></div>
       <section className="panel">
         {list.map((a) => (
           <article className="ad" key={a.library_id}>
@@ -394,18 +450,18 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
             <div className="ad-body">
               <div className="ad-head">
                 <b>{a.advertiser}</b>
-                <span className="mono">desde {fmtDate(a.start_date)}</span>
-                <span className="mono">{a.copies} {a.copies === 1 ? "cópia" : "cópias"}</span>
-                {a.cta && <span className="mono">botão: {a.cta}</span>}
-                <a className="ext-link" href={`https://www.facebook.com/ads/library/?id=${a.library_id}`} target="_blank" rel="noreferrer">ver anúncio ↗</a>
-                {a.landing_url && <a className="ext-link" href={a.landing_url} target="_blank" rel="noreferrer noopener" title={a.landing_url}>{shortUrl(a.landing_url, 34)} ↗</a>}
-                {dl.get(a.library_id) && <a className="ext-link" href={`${dl.get(a.library_id)!.url}?download=${encodeURIComponent(dl.get(a.library_id)!.name)}`} download={dl.get(a.library_id)!.name}>⬇ baixar {a.media_type === "video" ? "vídeo" : "imagem"}</a>}
+                <span>Desde {fmtDate(a.start_date)}</span>
+                <span>{a.copies} {a.copies === 1 ? "cópia" : "cópias"}</span>
+                {a.cta && <span>Botão: {a.cta}</span>}
+                <a href={`https://www.facebook.com/ads/library/?id=${a.library_id}`} target="_blank" rel="noreferrer">Ver anúncio</a>
+                {a.landing_url && <a href={a.landing_url} target="_blank" rel="noreferrer noopener" title={a.landing_url}>{shortUrl(a.landing_url, 34)}</a>}
+                {dl.get(a.library_id) && <a href={`${dl.get(a.library_id)!.url}?download=${encodeURIComponent(dl.get(a.library_id)!.name)}`} download={dl.get(a.library_id)!.name}>Baixar {a.media_type === "video" ? "vídeo" : "imagem"}</a>}
               </div>
               {a.body && <p>{a.body}</p>}
               {transcripts.get(a.library_id) && (
                 <details className="tr">
                   <summary>
-                    <span className="mono">transcrição</span> <b>gancho:</b> {transcripts.get(a.library_id)!.hook}
+                    <b>Gancho do vídeo:</b> {transcripts.get(a.library_id)!.hook}
                   </summary>
                   <p><b>Estrutura:</b> {transcripts.get(a.library_id)!.structure}</p>
                   <p><b>Chamada:</b> {transcripts.get(a.library_id)!.cta}</p>
@@ -415,7 +471,7 @@ export default async function Oferta({ params }: { params: Promise<{ key: string
             </div>
           </article>
         ))}
-        {!list.length && <p className="muted" style={{ margin: 0 }}>Nenhum anúncio salvo para esta oferta.</p>}
+        {!list.length && <p className="muted">Nenhum anúncio salvo para esta oferta.</p>}
       </section>
     </>
   );

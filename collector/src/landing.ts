@@ -19,6 +19,7 @@ export interface LandingInfo {
   excerpt: string | null;    // começo do texto da página (vai para a IA)
   error: string | null;
   currency?: string | null;  // BRL, USD, GBP, EUR, JPY
+  trackingIds?: string[];    // IDs de pixel e GTM: duas lojas com o mesmo ID costumam ser da mesma operação
   fullText?: string | null;  // texto completo (kit de modelagem)
   shot?: Buffer | null;      // print da página inteira (só das ofertas prioritárias)
 }
@@ -76,6 +77,18 @@ const PIXELS: [string, RegExp][] = [
   ["Clarity", /clarity\.ms/],
   ["Hotjar", /hotjar/],
 ];
+
+/** IDs próprios do dono da página: "meta:123...", "tiktok:CABC...", "gtm:GTM-XXXX", "ads:AW-123", "ga:G-XXXX". */
+export function extractTrackingIds(html: string): string[] {
+  const out = new Set<string>();
+  const add = (kind: string, re: RegExp) => { for (const m of html.matchAll(re)) out.add(`${kind}:${m[1]}`); };
+  add("meta", /fbq\(\s*['"]init['"]\s*,\s*['"](\d{10,20})['"]/g);
+  add("tiktok", /ttq\.load\(\s*['"]([A-Z0-9]{15,25})['"]/g);
+  add("gtm", /\b(GTM-[A-Z0-9]{5,9})\b/g);
+  add("ads", /\b(AW-\d{8,12})\b/g);
+  add("ga", /\b(G-[A-Z0-9]{8,12})\b/g);
+  return [...out].slice(0, 20);
+}
 
 /** "1.297,90" -> 1297.9 */
 export function brl(s: string): number {
@@ -161,6 +174,7 @@ export function analyzeLanding(url: string, html: string, text: string, finalUrl
     hasCountdown: /countdown|cronometro|cronômetro|contador regressivo/.test(h) || /(oferta|promoção|desconto)\s+(termina|expira|acaba)/i.test(text),
     hasWhatsapp: /wa\.me\/|api\.whatsapp\.com\/send/.test(h),
     pixels: PIXELS.filter(([, re]) => re.test(h)).map(([n]) => n),
+    trackingIds: extractTrackingIds(html),
     excerpt: text.replace(/\s+/g, " ").trim().slice(0, 1500) || null,
     error: null,
     currency,

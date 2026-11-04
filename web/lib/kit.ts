@@ -104,7 +104,7 @@ export function kitMarkdown(o: {
     `- site: ${o.domain ?? "—"}`,
     `- página de vendas: ${o.landing ?? "—"}`,
     o.shot ? `- print da página inteira: ${o.shot}` : "",
-    `- no radar: ${o.panel}`,
+    `- no VisionSpy: ${o.panel}`,
     `- biblioteca da Meta: ${o.library}`,
     `- feita em: ${o.platform ?? "—"} · checkout: ${o.checkout ?? "—"} · preços: ${o.prices ?? "—"}`,
     "",

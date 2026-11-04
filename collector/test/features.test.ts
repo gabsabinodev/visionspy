@@ -5,7 +5,7 @@ import { buildPrompt, classifyBatch, inputHash, parseInsights, rankModels } from
 import { computeAlerts, formatAlerts, isSurge, type RankRow } from "../src/alerts.js";
 import { buildSnapshots, mergeAds, resolveOfferKeys } from "../src/aggregate.js";
 import { toThumb } from "../src/creatives.js";
-import { analyzeLanding, extractPrices, isVisitable } from "../src/landing.js";
+import { analyzeLanding, extractPrices, extractTrackingIds, isVisitable } from "../src/landing.js";
 import { destTypeFor, isGenericDomain, offerKeyFor, parseMetaLibraryText } from "../src/parse/meta.js";
 import type { MetaAd } from "../src/types.js";
 
@@ -208,4 +208,21 @@ test("classifyBatch: erro 400 troca a opção de raciocínio", async () => {
   assert.equal(r.model, "m");
   assert.equal(bodies.length, 2);
   assert.ok(bodies[1].includes("thinkingBudget"));
+});
+
+test("mineração: IDs de pixel e GTM saem do HTML, sem repetir", () => {
+  const html = `<script>fbq('init', '1200000000000001');fbq("init","1200000000000001");ttq.load('C4ABCDEFGHIJKLMNOPQR');</script>
+    <script src="https://www.googletagmanager.com/gtm.js?id=GTM-ABC1234"></script><script>gtag('config','AW-123456789');gtag('config','G-ABCD1234EF');</script>`;
+  assert.deepEqual(extractTrackingIds(html).sort(), ["ads:AW-123456789", "ga:G-ABCD1234EF", "gtm:GTM-ABC1234", "meta:1200000000000001", "tiktok:C4ABCDEFGHIJKLMNOPQR"].sort());
+  assert.deepEqual(extractTrackingIds("<html>sem pixel, só R$ 1200000000000001</html>"), []);
+});
+
+test("mineração: a melhor posição na busca vale quando duas palavras acham o mesmo anúncio", () => {
+  const ad = { libraryId: "1", advertiser: "Loja", domain: "loja.com", body: "x", startDate: "2026-10-01", copies: 2 };
+  const merged = mergeAds([
+    { keyword: "a", totalResults: null, ads: [{ ...ad, rank: 40 }] },
+    { keyword: "b", totalResults: null, ads: [{ ...ad, rank: 7 }] },
+  ], new Set());
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].rank, 7);
 });

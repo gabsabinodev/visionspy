@@ -1,27 +1,28 @@
 "use client";
 
 import { useState } from "react";
+import { Icon } from "./icons";
 
 /** Miniatura do criativo. Os links de imagem do Facebook expiram: se quebrar, some sem deixar ícone quebrado. */
 export function Thumb({ src, alt, video }: { src: string | null; alt: string; video?: boolean }) {
   const [broken, setBroken] = useState(false);
-  if (!src || broken) return <span className="thumb thumb-empty" aria-hidden="true">&lt;/&gt;</span>;
+  if (!src || broken) return <span className="thumb thumb-empty" aria-hidden="true"><Icon name="eye" size={20} /></span>;
   return (
     <span className="thumb">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} />
-      {video && <span className="play" aria-label="vídeo">▶</span>}
+      {video && <span className="play" aria-label="vídeo"><Icon name="video" size={13} /></span>}
     </span>
   );
 }
 
 /** Copia um texto (ex.: link da página de vendas) e confirma no próprio botão. */
-export function CopyButton({ text, label = "copiar link" }: { text: string; label?: string }) {
+export function CopyButton({ text, label = "Copiar link" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
     <button
       type="button"
-      className="copy"
+      className="icon-btn"
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(text);
@@ -32,9 +33,9 @@ export function CopyButton({ text, label = "copiar link" }: { text: string; labe
         }
       }}
       aria-label={done ? "Link copiado" : label}
-      title={done ? "copiado" : label}
+      title={done ? "Copiado" : label}
     >
-      {done ? "✓" : "⧉"}
+      <Icon name={done ? "check" : "copy"} size={15} />
     </button>
   );
 }

@@ -1,5 +1,4 @@
 import { db } from "@/lib/db";
-import { C, K, N, S, Terminal } from "../terminal";
 
 export const dynamic = "force-dynamic";
 
@@ -8,10 +7,15 @@ interface Run { id: number; source: string; ok: boolean | null; items: number | 
 const SOURCES: { key: string; label: string; every: string; maxAgeH: number }[] = [
   { key: "meta", label: "Biblioteca da Meta", every: "3x por dia", maxAgeH: 14 },
   { key: "criativos", label: "Criativos (imagens)", every: "a cada coleta", maxAgeH: 30 },
+  { key: "midia", label: "Mídia original", every: "a cada coleta", maxAgeH: 48 },
   { key: "google", label: "Google (transparência)", every: "a cada coleta, só sites novos", maxAgeH: 48 },
+  { key: "tiktok", label: "TikTok", every: "a cada coleta", maxAgeH: 30 },
   { key: "reclameaqui", label: "Reclame Aqui", every: "1x por dia", maxAgeH: 30 },
   { key: "paginas", label: "Raio-X das páginas", every: "a cada coleta, só páginas novas", maxAgeH: 48 },
   { key: "ia", label: "IA (Gemini)", every: "a cada coleta, só o que mudou", maxAgeH: 48 },
+  { key: "kit", label: "Mapa das páginas", every: "a cada coleta, só o que mudou", maxAgeH: 72 },
+  { key: "transcricao", label: "Transcrição de vídeos", every: "a cada coleta, só vídeos novos", maxAgeH: 72 },
+  { key: "limpeza", label: "Limpeza de dados antigos", every: "uma vez por dia", maxAgeH: 72 },
   { key: "alertas", label: "Alertas (Telegram)", every: "a cada coleta", maxAgeH: 30 },
 ];
 
@@ -53,41 +57,30 @@ export default async function Status() {
 
   return (
     <>
-      <section className="hero">
-        <div>
-          <p className="comment">{"// saúde do robô nos últimos 7 dias"}</p>
-          <h1>{bad ? "Atenção no robô" : "Robô funcionando"}</h1>
-          <p className="lede">
-            Cada etapa da coleta grava o resultado aqui. Se alguma falhar, o aviso também chega no Telegram (quando estiver configurado).
-          </p>
-        </div>
-        <Terminal
-          title="status — zsh"
-          lines={[
-            <><span className="t-prompt">$</span> <span className="t-fn">radar.health</span>()</>,
-            <>{"{"}</>,
-            <>  <K>ofertas_no_ranking</K>: <N>{offers.count ?? 0}</N>,</>,
-            <>  <K>paginas_analisadas</K>: <N>{pages.count ?? 0}</N>,</>,
-            <>  <K>ofertas_com_ia</K>: <N>{ai.count ?? 0}</N>,</>,
-            <>  <K>criativos_guardados</K>: <N>{creatives.count ?? 0}</N>, <C>{`// ~${storageMb} MB de 1024`}</C></>,
-            <>  <K>alertas_enviados</K>: <N>{alerts.count ?? 0}</N>,</>,
-            <>  <K>status</K>: {bad ? <span className="t-bad">&quot;{bad} com problema&quot;</span> : <S>ok</S>}</>,
-            <>{"}"}</>,
-          ]}
-        />
-      </section>
+      <header className="page-head">
+        <h1>{bad ? "Atenção na coleta" : "Coleta funcionando"}</h1>
+        <p>Cada etapa grava o resultado aqui. Se alguma falhar, o aviso também chega no Telegram, quando ele estiver configurado.</p>
+      </header>
 
-      <div className="grid" style={{ marginBottom: 28 }}>
+      <div className="stats">
+        <div><b>{(offers.count ?? 0).toLocaleString("pt-BR")}</b><span>Ofertas no ranking</span></div>
+        <div><b>{(pages.count ?? 0).toLocaleString("pt-BR")}</b><span>Páginas analisadas</span></div>
+        <div><b>{(ai.count ?? 0).toLocaleString("pt-BR")}</b><span>Ofertas lidas pela IA</span></div>
+        <div><b>{(creatives.count ?? 0).toLocaleString("pt-BR")}</b><span>Criativos guardados, cerca de {storageMb} MB</span></div>
+        <div><b>{(alerts.count ?? 0).toLocaleString("pt-BR")}</b><span>Alertas enviados</span></div>
+      </div>
+
+      <div className="grid stack">
         <table>
           <thead>
-            <tr><th>etapa</th><th>estado</th><th>último sucesso</th><th className="n">itens</th><th className="n">falhas 7d</th><th>frequência</th></tr>
+            <tr><th>Etapa</th><th>Estado</th><th>Último sucesso</th><th className="n">Itens</th><th className="n">Falhas em 7 dias</th><th>Frequência</th></tr>
           </thead>
           <tbody>
             {health.map((h) => (
               <tr key={h.key}>
                 <td><b>{h.label}</b></td>
                 <td><span className={`health h-${h.state.replace(" ", "-")}`}>{h.state}</span></td>
-                <td className="mono">{h.lastOk ? <>{when(h.lastOk.finished_at)} <span className="dim">({ago(h.lastOk.finished_at)})</span></> : <span className="dim">nunca</span>}</td>
+                <td>{h.lastOk ? <>{when(h.lastOk.finished_at)} <span className="dim">({ago(h.lastOk.finished_at)})</span></> : <span className="dim">Nunca</span>}</td>
                 <td className="n">{h.lastOk?.items ?? "—"}</td>
                 <td className={`n ${h.fails ? "warn" : "dim"}`}>{h.fails}</td>
                 <td className="dim">{h.every}</td>
@@ -97,23 +90,23 @@ export default async function Status() {
         </table>
       </div>
 
-      <h2>Últimas execuções</h2>
+      <div className="section-head"><h2>Últimas execuções</h2></div>
       <div className="grid">
         <table>
-          <thead><tr><th>quando</th><th>etapa</th><th>resultado</th><th className="n">itens</th><th>detalhe</th></tr></thead>
+          <thead><tr><th>Quando</th><th>Etapa</th><th>Resultado</th><th className="n">Itens</th><th>Detalhe</th></tr></thead>
           <tbody>
             {list.slice(0, 40).map((r) => (
               <tr key={r.id}>
-                <td className="mono date">{when(r.finished_at)}</td>
+                <td className="date">{when(r.finished_at)}</td>
                 <td>{SOURCES.find((s) => s.key === r.source)?.label ?? r.source}</td>
-                <td className={r.ok === false ? "warn" : "up"}>{r.ok === false ? "falhou" : "ok"}</td>
+                <td className={r.ok === false ? "warn" : "up"}>{r.ok === false ? "Falhou" : "Ok"}</td>
                 <td className="n">{r.items ?? "—"}</td>
                 <td className="dim detail">{(r.message ?? "").split("\n")[0].slice(0, 160)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {!list.length && <div className="empty">Nenhuma execução nos últimos 7 dias.</div>}
+        {!list.length && <div className="empty"><b>Nenhuma execução nos últimos 7 dias.</b><p>Confira se o agendamento está ligado em Actions, no GitHub.</p></div>}
       </div>
     </>
   );

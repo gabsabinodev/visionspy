@@ -1,5 +1,5 @@
 {
-  "name": "radar-ofertas-web",
+  "name": "visionspy-web",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -7,8 +7,6 @@
     "start": "next start"
   },
   "dependencies": {
-    "@fontsource/chakra-petch": "^5.3.0",
-    "@fontsource/jetbrains-mono": "^5.3.0",
     "@supabase/supabase-js": "^2.45.0",
     "fflate": "^0.8.2",
     "next": "^15.0.0",

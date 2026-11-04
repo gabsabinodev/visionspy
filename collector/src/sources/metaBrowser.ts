@@ -79,6 +79,7 @@ export class MetaBrowserSource implements MetaAdSource {
 
     // links e mídia vêm do HTML (o texto não tem os endereços)
     const links = ((await page.evaluate(CARD_LINKS_SCRIPT).catch(() => ({}))) ?? {}) as CardLinks;
+    ads.forEach((ad, i) => { ad.rank = i + 1; });
     for (const ad of ads) {
       const l = links[ad.libraryId];
       if (!l) continue;

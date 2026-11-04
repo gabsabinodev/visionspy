@@ -1,258 +1,164 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { COUNTRIES, countryName, creativeSrc, db, DEST_LABEL, flag, fmtDate, KIND_LABEL, libraryLink, priceRange, shortUrl, type DestType, type OfferRow } from "@/lib/db";
-import { countAll, hrefWith, isFiltered, PAGE_SIZE, parseFilters, queryOffers, STRONG_SIGNAL, type Filters, type SortKey } from "@/lib/query";
-import { toggleFavorite } from "./actions";
-import { CopyButton, Thumb } from "./bits";
-import { FilterBar } from "./filter-bar";
-import { C, Cursor, K, N, S, Terminal } from "./terminal";
+import { COUNTRIES, countryName, db, defaultMoeda, EUROPE, inPais, paisName, rateOf } from "@/lib/db";
+import { MINE_PAGE, MINE_SORTS, mineFiltered, mineHref, parseMine, queryAds, type MineSort } from "@/lib/mining";
+import { binOf, SPEND_STOPS, type Moeda, type Phase, type SpendRow } from "@/lib/spend";
+import { AdCard } from "./ad-card";
+import { AdDrawer } from "./ad-drawer";
+import { deleteView, saveView } from "./actions";
+import { Icon } from "./icons";
+import { MineBar } from "./mine-bar";
 
 export const dynamic = "force-dynamic";
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
+interface Facet { country: string; niche: string | null; phase: Phase; ads: number }
+interface Heat { country: string; heat_v: number; ads: number }
+interface Saved { id: number; name: string; query: string }
 
-const fmtRun = (iso: string) =>
-  new Date(iso).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-
-/** Cabeçalho que ordena ao clicar (segundo clique inverte). */
-function SortTh({ f, k, label, num, title }: { f: Filters; k: SortKey; label: string; num?: boolean; title?: string }) {
-  const active = f.sort === k;
-  const nextDir = active ? (f.dir === "desc" ? "asc" : "desc") : ["nome", "desde", "preco"].includes(k) ? "asc" : "desc";
-  return (
-    <th className={num ? "n" : undefined} aria-sort={active ? (f.dir === "asc" ? "ascending" : "descending") : undefined} title={title}>
-      <Link className={`sort${active ? " on" : ""}`} href={hrefWith(f, { sort: k, dir: nextDir, limit: PAGE_SIZE })} scroll={false}>
-        {label}<span className="arrow" aria-hidden="true">{active ? (f.dir === "desc" ? "↓" : "↑") : "↕"}</span>
-      </Link>
-    </th>
-  );
-}
-
-type FacetRow = Pick<OfferRow, "keywords" | "niche" | "kind" | "dest_type" | "checkout" | "platform" | "country">;
-
-/** Conta valores para os seletores de filtro (só mostra opções que existem). */
-function facet(rows: FacetRow[], pick: (r: FacetRow) => (string | null)[], label: (v: string) => string = (v) => v) {
-  const m = new Map<string, number>();
-  for (const r of rows) for (const v of new Set(pick(r))) if (v) m.set(v, (m.get(v) ?? 0) + 1);
-  return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([value, count]) => ({ value, label: label(value), count }));
-}
-
-export default async function Ranking({ searchParams }: { searchParams: Search }) {
-  const f = parseFilters(await searchParams);
+export default async function Minerar({ searchParams }: { searchParams: Search }) {
+  const f = parseMine(await searchParams);
   const client = db();
-
-  const kwQuery = client.from("keywords").select("term, country").eq("active", true).order("term");
-  const growQuery = client.from("offer_ranking").select("offer_key", { count: "exact", head: true }).gt("copies_growth", 0);
-  const [{ offers, error, total }, withWeak, { data: kws }, { data: allRows }, { data: lastRun }, { count: growingAll }] = await Promise.all([
-    queryOffers(client, f),
-    countAll(client, f),
-    kwQuery,
-    client.from("offer_ranking").select("keywords, niche, kind, dest_type, checkout, platform, country").eq("discarded", false).or(STRONG_SIGNAL).limit(5000),
-    client.from("runs").select("source, ok, finished_at").eq("source", "meta").order("id", { ascending: false }).limit(1),
-    f.pais === "todos" ? growQuery : growQuery.eq("country", f.pais),
+  const { data: spendRows } = await client.from("spend_model").select("*");
+  const spend = (spendRows ?? []) as SpendRow[];
+  const moeda: Moeda = f.moeda || defaultMoeda(f.pais);
+  const rate = rateOf(spend, moeda);
+  const [{ ads, total, error }, big, { data: facetRows }, { data: heatRows }, { data: kws }, { data: saved }] = await Promise.all([
+    queryAds(client, f, rate),
+    f.marcas ? Promise.resolve({ total: 0 }) : queryAds(client, { ...f, marcas: true, limit: 1 }, rate),
+    client.from("ad_facets").select("country, niche, phase, ads"),
+    client.from("ad_heat").select("country, heat_v, ads"),
+    client.from("keywords").select("country").eq("active", true).limit(1000),
+    client.from("saved_views").select("id, name, query").eq("page", "/").order("created_at", { ascending: false }).limit(12),
   ]);
 
   if (error) {
     return (
-      <Terminal
-        title="erro.log"
-        lines={[<span key="e" className="t-bad">Erro ao ler o banco: {error.message}</span>, <C key="c">{"// confira SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY na Vercel; se for coluna nova, rode a migração do Supabase"}</C>]}
-      />
+      <div className="notice bad">
+        <b>Não consegui ler os anúncios.</b>
+        <p>{error.message}</p>
+        <p>Confira SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY na Vercel. Se a instalação for antiga, rode a migração 007 no Supabase.</p>
+      </div>
     );
   }
 
-  const everyRow = (allRows ?? []) as FacetRow[];
-  // contagem por país (seletor) e facetas só do país escolhido
-  const byCountry = new Map<string, number>();
-  for (const r of everyRow) byCountry.set(r.country ?? "BR", (byCountry.get(r.country ?? "BR") ?? 0) + 1);
-  const allKws = (kws ?? []) as { term: string; country: string | null }[];
-  const countryOpts = [...new Set(["BR", ...byCountry.keys(), ...allKws.map((k) => (k.country || "BR").toUpperCase())])]
-    .sort((a, b) => (a === "BR" ? -1 : b === "BR" ? 1 : (byCountry.get(b) ?? 0) - (byCountry.get(a) ?? 0)))
-    .map((c) => ({ value: c, label: `${flag(c)} ${countryName(c)}`, count: byCountry.get(c) ?? 0 }));
-  const rows = f.pais === "todos" ? everyRow : everyRow.filter((r) => (r.country ?? "BR") === f.pais);
-  const totalAll = rows.length;
-  const cur = f.pais === "todos" ? null : COUNTRIES[f.pais]?.currency ?? null;
-  const currencySymbol = cur ? (new Intl.NumberFormat("en-US", { style: "currency", currency: cur }).formatToParts(0).find((p) => p.type === "currency")?.value ?? cur) : "";
-  const placeName = f.pais === "todos" ? "no mundo" : f.pais === "BR" ? "no Brasil" : `em ${countryName(f.pais)}`;
-  const counts = new Map<string, number>();
-  for (const r of rows) for (const k of r.keywords ?? []) counts.set(k, (counts.get(k) ?? 0) + 1);
-  const terms = [...new Set(allKws.filter((k) => f.pais === "todos" || (k.country || "BR").toUpperCase() === f.pais).map((k) => k.term))];
-  const keywordChips = terms
-    .map((term) => ({ term, count: counts.get(term) ?? 0 }))
-    .filter((k) => k.count > 0 || k.term === f.kw) // palavra sem oferta não vira botão
-    .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term));
-  const facets = {
-    nicho: facet(rows, (r) => [r.niche]),
-    tipo: facet(rows, (r) => [r.kind], (v) => KIND_LABEL[v] ?? v),
-    destino: facet(rows, (r) => [r.dest_type], (v) => DEST_LABEL[v as DestType] ?? v),
-    checkout: facet(rows, (r) => [r.checkout, r.platform]),
-  };
+  const facets = (facetRows ?? []) as Facet[];
+  const heatAll = (heatRows ?? []) as Heat[];
+  const inCountry = <T extends { country: string }>(r: T) => inPais(f.pais, r.country);
 
-  const run = lastRun?.[0] as { source: string; ok: boolean | null; finished_at: string } | undefined;
-  const topScore = Math.max(...offers.map((o) => o.score), 1);
-  const filtered = isFiltered(f);
-  const exportHref = hrefWith({ ...f, limit: PAGE_SIZE }, {}, "/api/export");
+  const byCountry = new Map<string, number>();
+  for (const r of facets) byCountry.set(r.country, (byCountry.get(r.country) ?? 0) + r.ads);
+  const keys = [...new Set([...Object.keys(COUNTRIES), ...byCountry.keys(), ...((kws ?? []) as { country: string | null }[]).map((k) => (k.country || "BR").toUpperCase())])];
+  const opt = (c: string) => ({ value: c, label: countryName(c), count: byCountry.get(c) ?? 0 });
+  const byRegion = (r: string) => keys.filter((c) => (COUNTRIES[c]?.region ?? "outros") === r).map(opt).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const europeTotal = EUROPE.reduce((n, c) => n + (byCountry.get(c) ?? 0), 0);
+  const countries = [
+    { label: "Brasil", opts: [opt("BR")] },
+    { label: "Europa", opts: [{ value: "europa", label: "Europa inteira", count: europeTotal }, ...byRegion("europa")] },
+    { label: "Américas", opts: byRegion("americas") },
+    { label: "Outros", opts: byRegion("outros") },
+  ].filter((g) => g.opts.length);
+
+  const nicheCount = new Map<string, number>();
+  const phases: Record<Phase, number> = { vencedor: 0, escalando: 0, teste: 0 };
+  for (const r of facets.filter(inCountry)) {
+    if (r.niche) nicheCount.set(r.niche, (nicheCount.get(r.niche) ?? 0) + r.ads);
+    phases[r.phase] = (phases[r.phase] ?? 0) + r.ads;
+  }
+  const niches = [...nicheCount.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([value, count]) => ({ value, label: value, count }));
+
+  const heat = Array.from({ length: SPEND_STOPS.length - 1 }, () => 0);
+  // o banco agrupa em reais; aqui cada grupo cai na faixa certa da moeda escolhida
+  for (const r of heatAll.filter(inCountry)) heat[binOf(Number(r.heat_v) / rate)] += r.ads;
+
+  const filtered = mineFiltered(f);
+  const views = (saved ?? []) as Saved[];
+  const here = mineHref({ ...f, limit: MINE_PAGE, ver: "" }).split("?")[1] ?? "";
+  const anyCollected = facets.length > 0;
+  const hiddenBig = f.marcas ? 0 : Math.max(big.total - total, 0);
 
   return (
     <>
-      <section className="hero">
-        <div>
-          <p className="comment">{`// meta · google${f.pais === "BR" ? " · reclame aqui" : ""} — ${f.pais === "todos" ? "todos os países" : countryName(f.pais).toLowerCase()}`}</p>
-          <h1>Ofertas escalando {placeName}</h1>
-          <p className="lede">
-            Quem está duplicando criativo, abrindo páginas novas e anunciando no Google ao mesmo tempo. O ranking soma esses sinais e
-            destaca quem acelerou na última semana.
-          </p>
-        </div>
-        <Terminal
-          title="radar — zsh"
-          lines={[
-            <><span className="t-prompt">$</span> <span className="t-fn">radar.status</span>()</>,
-            <>{"{"}</>,
-            <>  <K>ofertas</K>: <N>{totalAll ?? 0}</N>,</>,
-            <>  <K>crescendo_7d</K>: <N>{growingAll ?? 0}</N>,</>,
-            <>  <K>palavras_chave</K>: <N>{terms.length}</N>,</>,
-            run ? (
-              <>  <K>ultima_coleta</K>: <S>{fmtRun(run.finished_at)}</S>,</>
-            ) : (
-              <>  <K>ultima_coleta</K>: <span className="t-com">null</span>,</>
-            ),
-            <>  <K>status</K>: {run?.ok === false ? <Link href="/status" className="t-bad">&quot;com falha&quot;</Link> : <span className="t-ok">&quot;online&quot;</span>}</>,
-            <>{"}"}</>,
-            <><span className="t-prompt">$</span> <Cursor /></>,
-          ]}
-        />
-      </section>
+      <header className="page-head compact">
+        <h1>Minerar anúncios</h1>
+        <p>Encontre onde tem dinheiro rodando, por país e por faixa de investimento.</p>
+      </header>
 
       <Suspense>
-        <FilterBar countries={countryOpts} currencySymbol={currencySymbol || "R$"} keywords={keywordChips} facets={facets} shown={offers.length} total={total} hiddenWeak={withWeak === null ? 0 : withWeak - total} exportHref={exportHref} />
+        <MineBar countries={countries} niches={niches} heat={heat} phases={phases} moeda={moeda} autoMoeda={defaultMoeda(f.pais)} />
       </Suspense>
 
-      <div className="grid">
-        <table className="ranking">
-          <thead>
-            <tr>
-              <th className="n" aria-label="Posição"></th>
-              <SortTh f={f} k="nome" label="oferta" />
-              <SortTh f={f} k="score" label="score" num />
-              <SortTh f={f} k="topo" label="no_topo" num title="Anúncios entre os mais vistos nas buscas" />
-              <SortTh f={f} k="copias" label="copias" num title="Soma de 'X anúncios usam esse criativo'" />
-              <SortTh f={f} k="crescimento" label="7d" num title="Cópias novas contra 7 dias atrás" />
-              <SortTh f={f} k="paginas" label="paginas" num title="Páginas do Facebook rodando a mesma oferta" />
-              <SortTh f={f} k="google" label="google" num title="Anúncios no Centro de Transparência do Google" />
-              <SortTh f={f} k="desde" label="desde" title="Anúncio ativo mais antigo (e há quantos dias está no ar)" />
-              <SortTh f={f} k="preco" label="pagina_de_vendas" title="Ordena pelo menor preço encontrado na página" />
-            </tr>
-          </thead>
-          <tbody>
-            {offers.map((o, i) => {
-              const price = priceRange(o.price_min, o.price_max, o.currency);
-              const meta = [o.niche, o.kind ? KIND_LABEL[o.kind] ?? o.kind : null].filter(Boolean);
-              return (
-                <tr key={o.offer_key} className={o.status ? `st-${o.status}` : undefined}>
-                  <td className="gutter">
-                    {i + 1}
-                    <form action={toggleFavorite}>
-                      <input type="hidden" name="key" value={o.offer_key} />
-                      <input type="hidden" name="current" value={o.status ?? ""} />
-                      <button
-                        className={`star${o.status ? " on" : ""}`}
-                        title={o.status && o.status !== "favorita" ? `No funil: ${o.status}` : o.status ? "Tirar dos favoritos" : "Favoritar"}
-                        aria-label={o.status === "favorita" ? "Tirar dos favoritos" : "Favoritar"}
-                        aria-pressed={!!o.status}
-                      >
-                        {o.status ? "★" : "☆"}
-                      </button>
-                    </form>
-                  </td>
-                  <td className="offer-cell">
-                    <Thumb src={creativeSrc(o.thumb_path, o.thumb_url)} alt={`Criativo de ${o.advertiser}`} />
-                    <div className="offer-main">
-                      {f.pais === "todos" && <span className="flag" title={countryName(o.country)}>{flag(o.country)}</span>}
-                      <Link className="offer-name" href={`/oferta/${encodeURIComponent(o.offer_key)}`}>{o.advertiser}</Link>
-                      {o.domain && <span className="domain">{o.domain}</span>}
-                      {(meta.length > 0 || o.risk === "alto" || (o.status && o.status !== "favorita") || o.long_runners > 0 || o.cooling || o.watched || o.has_kit || o.pixels?.includes("TikTok") || o.pixels?.includes("Kwai")) && (
-                        <div className="meta-line">
-                          {meta.map((m) => <span key={m}>{m}</span>)}
-                          {o.long_runners > 0 && <span className="badge ok" title={`${o.long_runners} anúncio(s) rodando há 30+ dias: sinal de oferta validada`}>✓ 30d+ ×{o.long_runners}</span>}
-                          {o.cooling && <span className="badge cold" title="Cópias caindo forte contra 7 dias atrás">🧊 esfriando</span>}
-                          {o.watched && <span className="badge" title="Na sua lista de espionagem">👁</span>}
-                          {o.pixels?.includes("TikTok") && <span className="badge tt" title="A página de vendas tem o pixel do TikTok: a oferta provavelmente roda TikTok Ads">TikTok</span>}
-                          {o.pixels?.includes("Kwai") && <span className="badge kw" title="A página de vendas tem o pixel do Kwai: a oferta provavelmente roda Kwai Ads">Kwai</span>}
-                          {o.has_kit && <Link className="badge" href={`/oferta/${encodeURIComponent(o.offer_key)}#kit`} title="Kit de modelagem pronto">kit</Link>}
-                          {o.risk === "alto" && <span className="risk" title={o.risk_reason ?? "Promessa arriscada para as políticas de anúncio"}>⚠ risco alto</span>}
-                          {o.status && o.status !== "favorita" && <span className="pill">{o.status}</span>}
-                        </div>
-                      )}
-                      {o.promise ? <div className="snippet promise">{o.promise}</div> : o.sample_text && <div className="snippet">{o.sample_text.slice(0, 120)}</div>}
-                      {o.pages > 1 && <div className="also">também em {o.advertisers.slice(1, 4).join(", ")}{o.advertisers.length > 4 ? "…" : ""}</div>}
-                      <div className="tags">{o.keywords.map((k) => (
-                        <Link key={k} className={`tag-kw${f.kw === k ? " on" : ""}`} href={hrefWith(f, { kw: f.kw === k ? "" : k, limit: PAGE_SIZE })} scroll={false}>{k}</Link>
-                      ))}</div>
-                    </div>
-                  </td>
-                  <td className="n">
-                    <div className="score">
-                      <b>{o.score}</b>
-                      <span className="meter" aria-hidden="true"><i style={{ width: `${Math.round((o.score / topScore) * 100)}%` }} /></span>
-                    </div>
-                  </td>
-                  <td className="n">{o.cards}</td>
-                  <td className="n">{o.copies}</td>
-                  <td className="n">
-                    {o.copies_7d === null ? <span className="delta new">novo</span>
-                      : o.copies_growth > 0 ? <span className="delta up">▲ {o.copies_growth}</span>
-                      : <span className="delta dim">{o.copies_growth}</span>}
-                  </td>
-                  <td className="n">{o.pages}</td>
-                  <td className="n">{o.google_ads ?? <span className="dim">—</span>}</td>
-                  <td className="mono date">
-                    {fmtDate(o.oldest_start)}
-                    {o.days_running !== null && o.days_running !== undefined && <div className={`days${o.days_running >= 30 ? " long" : ""}`}>{o.days_running} dias</div>}
-                  </td>
-                  <td className="landing">
-                    {o.landing_url ? (
-                      <span className="landing-wrap">
-                        <a href={o.landing_url} target="_blank" rel="noreferrer noopener" title={o.landing_url}>{shortUrl(o.landing_url, 30)}</a>
-                        <CopyButton text={o.landing_url} />
-                      </span>
-                    ) : (
-                      <span className="dim mono">{o.dest_type && o.dest_type !== "site" ? `via ${DEST_LABEL[o.dest_type]}` : "sem link"}</span>
-                    )}
-                    {(price || o.checkout || o.platform || o.cod) && (
-                      <div className="xray">
-                        {price && <b>{price}</b>}
-                        {(o.checkout || o.platform) && <span>{o.checkout ?? o.platform}</span>}
-                        {o.cod && <span className="cod" title="Pagamento na entrega">COD</span>}
-                        {o.has_vsl && <span title="Página com vídeo de vendas">VSL</span>}
-                      </div>
-                    )}
-                    <div className="sublinks">
-                      {o.page_url && <a href={o.page_url} target="_blank" rel="noreferrer" title="Página do anunciante no Facebook">página fb ↗</a>}
-                      <a href={libraryLink(o.domain ?? o.advertiser, o.country)} target="_blank" rel="noreferrer" title="Anúncios ativos na Biblioteca da Meta">biblioteca ↗</a>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {offers.length === 0 && (
-          <div className="empty">
-            {withWeak ? <>Nenhuma oferta com sinal de escala nesses filtros. <Link href={hrefWith(f, { todas: true })}>Mostrar {withWeak} com sinal fraco</Link></>
-              : filtered ? <>Nenhuma oferta com esses filtros. <Link href="/">Limpar filtros</Link></>
-              : <>Ainda sem ofertas. Rode a coleta no GitHub em <code>Actions → Coletar ofertas → Run workflow</code>.</>}
+      <div className="results-head">
+        <div className="results-count" aria-live="polite">
+          <b>{total.toLocaleString("pt-BR")}</b> {total === 1 ? "anúncio ativo" : "anúncios ativos"}
+          {f.pais !== "todos" && <> {f.pais === "europa" ? "na" : "em"} {paisName(f.pais)}</>}
+          {f.marcas ? <Link className="linkish after" href={mineHref(f, { marcas: false })} scroll={false}>Esconder marcas grandes</Link>
+            : hiddenBig > 0 && <Link className="linkish after" href={mineHref(f, { marcas: true })} scroll={false} title="Mais de 1.000 anúncios no Google: costuma ser marca grande, não oferta para modelar">Mostrar {hiddenBig} de marcas grandes</Link>}
+        </div>
+        <div className="results-tools">
+          <div className="saved">
+            {views.map((v) => (
+              <span key={v.id} className={`saved-chip${v.query === here ? " on" : ""}`}>
+                <Link href={v.query ? `/?${v.query}` : "/"}>{v.name}</Link>
+                <form action={deleteView}>
+                  <input type="hidden" name="id" value={v.id} />
+                  <button aria-label={`Apagar busca ${v.name}`} title="Apagar busca salva"><Icon name="x" size={12} /></button>
+                </form>
+              </span>
+            ))}
+            {filtered && (
+              <details className="pop">
+                <summary><Icon name="bookmark" size={15} /> Salvar busca</summary>
+                <form action={saveView} className="pop-body">
+                  <input type="hidden" name="query" value={here} />
+                  <input type="hidden" name="page" value="/" />
+                  <input className="field" name="name" placeholder="Nome da busca" required maxLength={60} aria-label="Nome da busca" />
+                  <button className="btn">Salvar</button>
+                </form>
+              </details>
+            )}
           </div>
-        )}
+          <div className="sort-links" role="group" aria-label="Ordenar">
+            {(Object.keys(MINE_SORTS) as MineSort[]).map((k) => (
+              <Link key={k} href={mineHref(f, { ordem: k, limit: MINE_PAGE, ver: "" })} scroll={false} aria-current={f.ordem === k ? "true" : undefined}>{MINE_SORTS[k].label}</Link>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {offers.length < total && (
-        <div className="more">
-          <Link className="btn ghost" href={hrefWith(f, { limit: f.limit + PAGE_SIZE })} scroll={false}>
-            Mostrar mais {Math.min(PAGE_SIZE, total - offers.length)}
-          </Link>
-          <span className="mono dim">{offers.length} de {total}</span>
+      {ads.length > 0 ? (
+        <div className="ad-grid">
+          {ads.map((a) => <AdCard key={a.library_id} a={a} href={mineHref(f, { ver: a.library_id })} showCountry={f.pais === "todos" || f.pais === "europa"} moeda={moeda} rate={rate} />)}
+        </div>
+      ) : (
+        <div className="empty">
+          {!anyCollected ? (
+            <>
+              <b>Nenhum anúncio coletado ainda.</b>
+              <p>Rode a primeira coleta em Actions, no GitHub. Os resultados aparecem aqui assim que ela terminar.</p>
+            </>
+          ) : filtered ? (
+            <>
+              <b>Nenhum anúncio nessa combinação.</b>
+              <p>Abra a faixa de investimento ou tire um filtro. <Link href={f.pais === "BR" ? "/" : `/?pais=${f.pais}`}>Limpar filtros</Link></p>
+            </>
+          ) : (
+            <>
+              <b>Nenhum anúncio {f.pais === "europa" ? "na" : "em"} {paisName(f.pais)}.</b>
+              <p>Cadastre palavras-chave deste país para o robô buscar aqui. <Link href="/palavras-chave">Adicionar palavras-chave</Link></p>
+            </>
+          )}
         </div>
       )}
+
+      {ads.length < total && (
+        <div className="more">
+          <Link className="btn ghost" href={mineHref(f, { limit: f.limit + MINE_PAGE })} scroll={false}>Mostrar mais {Math.min(MINE_PAGE, total - ads.length)}</Link>
+          <span className="dim">{ads.length} de {total.toLocaleString("pt-BR")}</span>
+        </div>
+      )}
+
+      {f.ver && <AdDrawer id={f.ver} closeHref={mineHref({ ...f, ver: "" })} moeda={moeda} rate={rate} />}
     </>
   );
 }
