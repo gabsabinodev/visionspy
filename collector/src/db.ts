@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { OfferInput } from "./ai.js";
-import type { AdWithMeta, OfferAlias } from "./aggregate.js";
+import { uniqueAds, type AdWithMeta, type OfferAlias } from "./aggregate.js";
 import { isVisitable, type LandingInfo } from "./landing.js";
 import { normalizeName } from "./parse/meta.js";
 import type { OfferSnapshot, RaCompany } from "./types.js";
@@ -91,7 +91,7 @@ export async function loadIgnored(db: SupabaseClient): Promise<Set<string>> {
 
 export async function saveAds(db: SupabaseClient, ads: (AdWithMeta & { country?: string })[]) {
   const now = new Date().toISOString();
-  await inChunks(ads, 500, async (chunk) => {
+  await inChunks(uniqueAds(ads), 500, async (chunk) => {
     check(
       await db.from("ads").upsert(
         chunk.map((a) => ({

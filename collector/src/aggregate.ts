@@ -54,6 +54,25 @@ export function mergeAds(results: KeywordResult[], ignored: Set<string>): AdWith
   return [...byId.values()];
 }
 
+/** O mesmo anúncio pode rodar em vários países, mas o banco guarda um registro por ID: fica o de melhor posição. */
+export function uniqueAds<T extends AdWithMeta>(ads: T[]): T[] {
+  const byId = new Map<string, T>();
+  for (const ad of ads) {
+    const prev = byId.get(ad.libraryId);
+    if (!prev) {
+      byId.set(ad.libraryId, ad);
+      continue;
+    }
+    const best = (ad.rank ?? Infinity) < (prev.rank ?? Infinity) ? ad : prev;
+    byId.set(ad.libraryId, {
+      ...best,
+      copies: Math.max(prev.copies, ad.copies),
+      keywords: [...new Set([...prev.keywords, ...ad.keywords])],
+    });
+  }
+  return [...byId.values()];
+}
+
 /**
  * Junta ofertas duplicadas: anúncios sem site ("a:...") do mesmo anunciante ou da mesma página
  * do Facebook passam para a oferta com site, quando ela é clara (um site domina as cópias).

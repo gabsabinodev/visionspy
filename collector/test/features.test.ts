@@ -3,7 +3,7 @@ import { test } from "node:test";
 import sharp from "sharp";
 import { buildPrompt, classifyBatch, inputHash, parseInsights, rankModels } from "../src/ai.js";
 import { computeAlerts, formatAlerts, isSurge, type RankRow } from "../src/alerts.js";
-import { buildSnapshots, mergeAds, resolveOfferKeys } from "../src/aggregate.js";
+import { buildSnapshots, mergeAds, resolveOfferKeys, uniqueAds, type AdWithMeta } from "../src/aggregate.js";
 import { toThumb } from "../src/creatives.js";
 import { analyzeLanding, extractPrices, extractTrackingIds, isVisitable } from "../src/landing.js";
 import { destTypeFor, isGenericDomain, offerKeyFor, parseMetaLibraryText } from "../src/parse/meta.js";
@@ -225,4 +225,14 @@ test("mineração: a melhor posição na busca vale quando duas palavras acham o
   ], new Set());
   assert.equal(merged.length, 1);
   assert.equal(merged[0].rank, 7);
+});
+
+test("mesmo anúncio em dois países vira um registro só, com a melhor posição", () => {
+  const ad = (country: string, rank: number, copies: number, keyword: string) =>
+    ({ libraryId: "1", advertiser: "Loja", body: "", copies, rank, offerKey: `${country}:d:loja.com`, keywords: [keyword], country }) as unknown as AdWithMeta & { country: string };
+  const r = uniqueAds([ad("gb", 40, 2, "free uk delivery"), ad("de", 5, 7, "nur heute"), ad("fr", 20, 3, "stock limité")]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].country, "de");
+  assert.equal(r[0].copies, 7);
+  assert.deepEqual(r[0].keywords, ["free uk delivery", "nur heute", "stock limité"]);
 });
