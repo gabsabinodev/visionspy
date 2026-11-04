@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { countryOfKey, db, STATUSES, validKey } from "@/lib/db";
+import { countryOfKey, db, isScope, STATUSES, validKey } from "@/lib/db";
 import { geminiText } from "@/lib/gemini";
 import { myVersionPrompt, type MyInput } from "@/lib/kit";
 
@@ -75,7 +75,7 @@ export async function toggleWatch(form: FormData) {
 /** Adiciona à espionagem pelo site ou nome da página (liga à oferta quando ela aparecer). */
 export async function addWatch(form: FormData) {
   const term = String(form.get("term") ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").slice(0, 120);
-  const country = String(form.get("country") ?? "BR").toUpperCase();
+  const country = String(form.get("country") ?? "GB").toUpperCase();
   if (!term || !/^[A-Z]{2}$/.test(country)) return;
   await db().from("watchlist").upsert({ label: term, term, country }, { onConflict: "term,country" });
   revalidatePath("/espionagem");
@@ -94,8 +94,8 @@ export async function ignoreAdvertiser(form: FormData) {
 /** Adiciona uma palavra-chave sugerida à coleta. */
 export async function addKeywordTerm(form: FormData) {
   const term = String(form.get("term") ?? "").trim().toLowerCase().slice(0, 80);
-  const country = String(form.get("country") ?? "BR").toUpperCase();
-  if (!term || !/^[A-Z]{2}$/.test(country)) return;
+  const country = String(form.get("country") ?? "").toUpperCase();
+  if (!term || !isScope(country)) return;
   await db().from("keywords").upsert({ term, country, active: true }, { onConflict: "term,country" });
   revalidatePath("/palavras-chave");
 }

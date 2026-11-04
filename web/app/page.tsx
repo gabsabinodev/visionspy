@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { COUNTRIES, countryName, db, defaultMoeda, EUROPE, inPais, paisName, rateOf } from "@/lib/db";
+import { COUNTRIES, countryName, db, DEFAULT_PAIS, defaultMoeda, groupOptions, paisList, paisName, rateOf } from "@/lib/db";
 import { MINE_PAGE, MINE_SORTS, mineFiltered, mineHref, parseMine, queryAds, type MineSort } from "@/lib/mining";
 import { binOf, SPEND_STOPS, type Moeda, type Phase, type SpendRow } from "@/lib/spend";
 import { AdCard } from "./ad-card";
@@ -12,8 +12,8 @@ import { MineBar } from "./mine-bar";
 export const dynamic = "force-dynamic";
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
-interface Facet { country: string; niche: string | null; phase: Phase; ads: number }
-interface Heat { country: string; heat_v: number; ads: number }
+interface Facet { niche: string | null; phase: Phase; ads: number }
+interface Heat { heat_v: number; ads: number }
 interface Saved { id: number; name: string; query: string }
 
 export default async function Minerar({ searchParams }: { searchParams: Search }) {
@@ -23,12 +23,13 @@ export default async function Minerar({ searchParams }: { searchParams: Search }
   const spend = (spendRows ?? []) as SpendRow[];
   const moeda: Moeda = f.moeda || defaultMoeda(f.pais);
   const rate = rateOf(spend, moeda);
-  const [{ ads, total, error }, big, { data: facetRows }, { data: heatRows }, { data: kws }, { data: saved }] = await Promise.all([
+  const paises = paisList(f.pais);
+  const [{ ads, total, error }, big, { data: countryRows }, { data: facetRows }, { data: heatRows }, { data: saved }] = await Promise.all([
     queryAds(client, f, rate),
     f.marcas ? Promise.resolve({ total: 0 }) : queryAds(client, { ...f, marcas: true, limit: 1 }, rate),
-    client.from("ad_facets").select("country, niche, phase, ads"),
-    client.from("ad_heat").select("country, heat_v, ads"),
-    client.from("keywords").select("country").eq("active", true).limit(1000),
+    client.from("ad_paises").select("country, ads"),
+    client.rpc("ad_resumo_filtros", { paises }),
+    client.rpc("ad_resumo_valor", { paises }),
     client.from("saved_views").select("id, name, query").eq("page", "/").order("created_at", { ascending: false }).limit(12),
   ]);
 
@@ -44,24 +45,21 @@ export default async function Minerar({ searchParams }: { searchParams: Search }
 
   const facets = (facetRows ?? []) as Facet[];
   const heatAll = (heatRows ?? []) as Heat[];
-  const inCountry = <T extends { country: string }>(r: T) => inPais(f.pais, r.country);
 
-  const byCountry = new Map<string, number>();
-  for (const r of facets) byCountry.set(r.country, (byCountry.get(r.country) ?? 0) + r.ads);
-  const keys = [...new Set([...Object.keys(COUNTRIES), ...byCountry.keys(), ...((kws ?? []) as { country: string | null }[]).map((k) => (k.country || "BR").toUpperCase())])];
+  const byCountry = new Map(((countryRows ?? []) as { country: string; ads: number }[]).map((r) => [r.country, r.ads]));
+  const keys = [...new Set([...Object.keys(COUNTRIES), ...byCountry.keys()])];
   const opt = (c: string) => ({ value: c, label: countryName(c), count: byCountry.get(c) ?? 0 });
   const byRegion = (r: string) => keys.filter((c) => (COUNTRIES[c]?.region ?? "outros") === r).map(opt).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  const europeTotal = EUROPE.reduce((n, c) => n + (byCountry.get(c) ?? 0), 0);
   const countries = [
-    { label: "Brasil", opts: [opt("BR")] },
-    { label: "Europa", opts: [{ value: "europa", label: "Europa inteira", count: europeTotal }, ...byRegion("europa")] },
+    { label: "Regiões", opts: [{ value: DEFAULT_PAIS, label: "Todos os países", count: 0 }, ...groupOptions()] },
+    { label: "Europa", opts: byRegion("europa") },
     { label: "Américas", opts: byRegion("americas") },
     { label: "Outros", opts: byRegion("outros") },
   ].filter((g) => g.opts.length);
 
   const nicheCount = new Map<string, number>();
   const phases: Record<Phase, number> = { vencedor: 0, escalando: 0, teste: 0 };
-  for (const r of facets.filter(inCountry)) {
+  for (const r of facets) {
     if (r.niche) nicheCount.set(r.niche, (nicheCount.get(r.niche) ?? 0) + r.ads);
     phases[r.phase] = (phases[r.phase] ?? 0) + r.ads;
   }
@@ -69,7 +67,7 @@ export default async function Minerar({ searchParams }: { searchParams: Search }
 
   const heat = Array.from({ length: SPEND_STOPS.length - 1 }, () => 0);
   // o banco agrupa em reais; aqui cada grupo cai na faixa certa da moeda escolhida
-  for (const r of heatAll.filter(inCountry)) heat[binOf(Number(r.heat_v) / rate)] += r.ads;
+  for (const r of heatAll) heat[binOf(Number(r.heat_v) / rate)] += r.ads;
 
   const filtered = mineFiltered(f);
   const views = (saved ?? []) as Saved[];
@@ -128,7 +126,7 @@ export default async function Minerar({ searchParams }: { searchParams: Search }
 
       {ads.length > 0 ? (
         <div className="ad-grid">
-          {ads.map((a) => <AdCard key={a.library_id} a={a} href={mineHref(f, { ver: a.library_id })} showCountry={f.pais === "todos" || f.pais === "europa"} moeda={moeda} rate={rate} />)}
+          {ads.map((a) => <AdCard key={a.library_id} a={a} href={mineHref(f, { ver: a.library_id })} showCountry={paises?.length !== 1} moeda={moeda} rate={rate} />)}
         </div>
       ) : (
         <div className="empty">
@@ -140,7 +138,7 @@ export default async function Minerar({ searchParams }: { searchParams: Search }
           ) : filtered ? (
             <>
               <b>Nenhum anúncio nessa combinação.</b>
-              <p>Abra a faixa de investimento ou tire um filtro. <Link href={f.pais === "BR" ? "/" : `/?pais=${f.pais}`}>Limpar filtros</Link></p>
+              <p>Abra a faixa de investimento ou tire um filtro. <Link href={f.pais === DEFAULT_PAIS ? "/" : `/?pais=${f.pais}`}>Limpar filtros</Link></p>
             </>
           ) : (
             <>

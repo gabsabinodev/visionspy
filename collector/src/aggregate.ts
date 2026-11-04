@@ -4,6 +4,7 @@ import type { DestType, KeywordResult, MetaAd, OfferSnapshot } from "./types.js"
 export interface AdWithMeta extends MetaAd {
   offerKey: string;
   keywords: string[];
+  countries?: string[];
 }
 
 /** Apelido: chave antiga ("a:anunciante") que passou a apontar para a oferta com site ("d:site.com"). */
@@ -54,7 +55,7 @@ export function mergeAds(results: KeywordResult[], ignored: Set<string>): AdWith
   return [...byId.values()];
 }
 
-/** O mesmo anúncio pode rodar em vários países, mas o banco guarda um registro por ID: fica o de melhor posição. */
+/** O mesmo anúncio pode rodar em vários países: o banco guarda um registro por ID, com todos os países. */
 export function uniqueAds<T extends AdWithMeta>(ads: T[]): T[] {
   const byId = new Map<string, T>();
   for (const ad of ads) {
@@ -68,6 +69,7 @@ export function uniqueAds<T extends AdWithMeta>(ads: T[]): T[] {
       ...best,
       copies: Math.max(prev.copies, ad.copies),
       keywords: [...new Set([...prev.keywords, ...ad.keywords])],
+      countries: [...new Set([...(prev.countries ?? []), ...(ad.countries ?? [])])],
     });
   }
   return [...byId.values()];

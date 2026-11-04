@@ -13,7 +13,7 @@ export function AdCard({ a, href, showCountry, moeda, rate }: { a: AdRow; href: 
       <Link href={href} scroll={false} className="ad-card-media" aria-label={`Ver anúncio de ${a.advertiser}`}>
         <Thumb src={creativeSrc(a.thumb_path, a.thumb_url)} alt={`Criativo de ${a.advertiser}`} video={a.media_type === "video"} />
         <span className={`phase ph-${a.phase}`}>{PHASE_LABEL[a.phase]}</span>
-        {showCountry && <span className="ad-country" title={countryName(a.country)}>{a.country}</span>}
+        {showCountry && <span className="ad-country" title={a.countries.map(countryName).join(", ")}>{a.country}{a.countries.length > 1 && ` +${a.countries.length - 1}`}</span>}
       </Link>
       <div className="ad-meter" aria-hidden="true"><i /></div>
       <div className="ad-card-body">

@@ -95,6 +95,8 @@ const ALL_ADS: Row[] = SEEDS.flatMap((s, si) => {
 const shared = "h0-0";
 for (const a of ALL_ADS) if (a.offer_key === "d:cabelonovo.com.br" && a.library_id === String(900300)) a.body_hash = shared;
 
+for (const a of ALL_ADS) a.countries = [a.country];
+for (const a of ALL_ADS.filter((x) => x.country === "GB").slice(0, 3)) a.countries = ["GB", "DE", "FR", "IE"];
 const FEED = ALL_ADS.filter((a) => a.status !== "descartada");
 
 const OFFERS: Row[] = SEEDS.map((s) => {
@@ -135,6 +137,7 @@ const SNAPSHOTS: Row[] = OFFERS.flatMap((o, i) => (TRENDS[i].points as number[])
 
 const KEYWORDS: Row[] = [
   ...["frete grátis", "pagamento na entrega", "acesso imediato", "compre 2 leve 3", "renda extra", "emagrecer", "pague depois", "últimas unidades", "garantia de 30 dias", "colágeno", "receitas", "menopausa", "dores", "queda de cabelo", "cachorro", "rugas"].map((term) => [term, "BR"]),
+  ["retirement sale", "EUROPA"], ["closing down sale", "EUROPA"], ["our family legacy", "BIG5"],
   ["free shipping", "US"], ["weight loss", "US"], ["pagamento na entrega", "PT"], ["envio grátis", "PT"], ["buy one get one free", "GB"], ["kostenloser versand", "DE"],
 ].map(([term, country], i) => ({ id: i + 1, term, country, active: i !== 4 }));
 for (const o of OFFERS) o.keywords = [...(o.keywords as string[]), KEYWORDS[(o.advertiser as string).length % 16].term as string];
@@ -211,18 +214,12 @@ const TABLES: Record<string, Row[]> = {
   offer_kits: KITS, ad_transcripts: [{ library_id: "900000", hook: "Mulher olha o espelho: \"isso nunca saía\"", structure: "gancho → problema → autoridade → prova → oferta", cta: "Toque em saiba mais", transcript: "Isso nunca saía da minha pele até eu entender o motivo." }],
   watchlist: WATCH, tiktok_top_ads: TT_TOP, tiktok_library_ads: [], tiktok_watch_counts: [],
   offer_notes: OFFERS.filter((o) => o.status).map((o) => ({ offer_key: o.offer_key, status: o.status, note: o.note, updated_at: today })),
-  ad_heat: Object.values(FEED.filter((a) => !a.big_brand).reduce<Record<string, Row>>((acc, a) => {
-    const k = `${a.country}|${a.heat_v}`;
-    const row = (acc[k] ??= { country: a.country, heat_v: a.heat_v, ads: 0 });
+  ad_paises: Object.values(FEED.filter((a) => !a.big_brand).flatMap((a) => a.countries as string[]).reduce<Record<string, Row>>((acc, c) => {
+    const row = (acc[c] ??= { country: c, ads: 0 });
     row.ads = (row.ads as number) + 1;
     return acc;
   }, {})),
-  ad_facets: Object.values(FEED.filter((a) => !a.big_brand).reduce<Record<string, Row>>((acc, a) => {
-    const k = `${a.country}|${a.niche}|${a.phase}`;
-    const row = (acc[k] ??= { country: a.country, niche: a.niche, phase: a.phase, ads: 0 });
-    row.ads = (row.ads as number) + 1;
-    return acc;
-  }, {})),
+  paused_countries: [{ country: "BR" }],
 };
 
 /** Imita o encadeamento do supabase-js o suficiente para as páginas do painel. */
@@ -297,4 +294,18 @@ class Query implements PromiseLike<{ data: Row[] | Row | null; error: null; coun
   }
 }
 
-export const demoClient = { from: (table: string) => new Query(table) };
+/** Contagens da tela de mineração (no banco são funções). */
+function rpc(name: string, args: { paises: string[] | null }) {
+  const rows = FEED.filter((a) => !a.big_brand && (!args.paises || args.paises.some((c) => (a.countries as string[]).includes(c))));
+  const keyOf = (a: Row) => (name === "ad_resumo_valor" ? String(a.heat_v) : `${a.niche}|${a.phase}`);
+  const pick = (a: Row): Row => (name === "ad_resumo_valor" ? { heat_v: a.heat_v } : { niche: a.niche, phase: a.phase });
+  const groups = new Map<string, Row>();
+  for (const a of rows) {
+    const row = groups.get(keyOf(a)) ?? { ...pick(a), ads: 0 };
+    row.ads = (row.ads as number) + 1;
+    groups.set(keyOf(a), row);
+  }
+  return Promise.resolve({ data: [...groups.values()], error: null });
+}
+
+export const demoClient = { from: (table: string) => new Query(table), rpc };

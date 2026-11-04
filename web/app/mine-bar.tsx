@@ -83,8 +83,8 @@ export function MineBar({ countries, niches, heat, phases, moeda, autoMoeda }: P
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const rawPais = (params.get("pais") ?? "BR").toUpperCase();
-  const pais = rawPais === "TODOS" ? "todos" : rawPais === "EUROPA" ? "europa" : rawPais;
+  const rawPais = (params.get("pais") ?? "todos").trim();
+  const pais = /^[a-z]{2}$/i.test(rawPais) ? rawPais.toUpperCase() : rawPais.toLowerCase();
   const fase = params.get("fase") ?? "";
   const formato = params.get("formato") ?? "";
   const peak = Math.max(...heat, 1);
@@ -113,13 +113,12 @@ export function MineBar({ countries, niches, heat, phases, moeda, autoMoeda }: P
         </label>
         <label className="select-wrap country">
           <span className="sr-only">País</span>
-          <select value={pais} aria-label="País" onChange={(e) => push({ pais: e.target.value === "BR" ? null : e.target.value, moeda: null })}>
+          <select value={pais} aria-label="País" onChange={(e) => push({ pais: e.target.value === "todos" ? null : e.target.value, moeda: null })}>
             {countries.map((g) => (
               <optgroup key={g.label} label={g.label}>
                 {g.opts.map((c) => <option key={c.value} value={c.value}>{c.label}{c.count ? ` (${c.count})` : ""}</option>)}
               </optgroup>
             ))}
-            <option value="todos">Todos os países</option>
           </select>
           <Icon name="chevron" size={15} />
         </label>

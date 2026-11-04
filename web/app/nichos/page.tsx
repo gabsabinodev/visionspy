@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db, defaultMoeda, EUROPE, paisName, rateOf, type OfferRow } from "@/lib/db";
+import { db, DEFAULT_PAIS, defaultMoeda, paisList, paisName, rateOf, type OfferRow } from "@/lib/db";
 import { parsePais } from "@/lib/query";
 import { fmtMoney, heatColor, heatOf, heatText, type SpendRow } from "@/lib/spend";
 
@@ -18,8 +18,8 @@ export default async function Nichos({ searchParams }: { searchParams: Search })
   let query = client.from("offer_ranking")
     .select("niche, country, est_month_brl, launched_7d, copies_growth, copies_7d, first_seen, phase, momentum, advertiser, offer_key")
     .eq("discarded", false).eq("big_brand", false).not("niche", "is", null).order("est_month_brl", { ascending: false }).limit(1000);
-  if (pais === "europa") query = query.in("country", EUROPE);
-  else if (pais !== "todos") query = query.eq("country", pais);
+  const paises = paisList(pais);
+  if (paises) query = query.in("country", paises);
   const [{ data, error }, { data: spendRows }] = await Promise.all([query, client.from("spend_model").select("*")]);
   const moeda = defaultMoeda(pais);
   const rate = rateOf((spendRows ?? []) as SpendRow[], moeda);
@@ -40,7 +40,7 @@ export default async function Nichos({ searchParams }: { searchParams: Search })
   }
   const list = [...map.values()].sort((a, b) => b.launched - a.launched || b.spend - a.spend);
   const peak = Math.max(...list.map((n) => n.spend), 1);
-  const tabs = ["BR", "europa", "GB", "PT", "ES", "FR", "DE", "IT", "US", "todos"];
+  const tabs = [DEFAULT_PAIS, "europa", "norte", "big5", "GB", "DE", "FR", "US", "JP"];
 
   return (
     <>
@@ -50,7 +50,7 @@ export default async function Nichos({ searchParams }: { searchParams: Search })
       </header>
       <nav className="lenses" aria-label="País">
         {tabs.map((c) => (
-          <Link key={c} href={c === "BR" ? "/nichos" : `/nichos?pais=${c}`} aria-current={pais === c ? "true" : undefined}>{paisName(c).replace(/^t/, "T")}</Link>
+          <Link key={c} href={c === DEFAULT_PAIS ? "/nichos" : `/nichos?pais=${c}`} aria-current={pais === c ? "true" : undefined}>{paisName(c).replace(/^t/, "T")}</Link>
         ))}
       </nav>
       <div className="grid">
@@ -72,7 +72,7 @@ export default async function Nichos({ searchParams }: { searchParams: Search })
               const t = heatOf(n.spend);
               return (
                 <tr key={n.name} style={{ ["--heat" as string]: heatColor(t), ["--heat-text" as string]: heatText(t), ["--fill" as string]: `${Math.max((n.spend / peak) * 100, 3)}%` }}>
-                  <td><Link className="name" href={`/?nicho=${encodeURIComponent(n.name)}${pais === "BR" ? "" : `&pais=${pais}`}`}>{n.name}</Link></td>
+                  <td><Link className="name" href={`/?nicho=${encodeURIComponent(n.name)}${pais === DEFAULT_PAIS ? "" : `&pais=${pais}`}`}>{n.name}</Link></td>
                   <td className="n">{n.launched > 0 ? <span className="up">+{n.launched}</span> : <span className="dim">0</span>}</td>
                   <td className="n" style={{ minWidth: 150 }}><b>{fmtMoney(n.spend, moeda)}</b><span className="bar" style={{ marginLeft: "auto" }} /></td>
                   <td className="n">{n.offers}</td>

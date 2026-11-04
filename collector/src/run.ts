@@ -4,6 +4,7 @@ import { computeAlerts, formatAlerts, formatCooling, formatWatch, formatWelcome 
 import { applyCountry, buildSnapshots, mergeAds, resolveOfferKeys, type AdWithMeta, type OfferAlias } from "./aggregate.js";
 import { BUCKET, storeCreatives, toThumb } from "./creatives.js";
 import { MAX_FILE, MEDIA_BUCKET, pruneMedia, storeMedia } from "./media.js";
+import { expandKeywords, pickSearches } from "./rotation.js";
 import { libraryTerm, TIKTOK_LIBRARY_COUNTRIES, TikTokSource } from "./sources/tiktok.js";
 import * as db from "./db.js";
 import { closeBrowser, jitter } from "./sources/browser.js";
@@ -45,10 +46,15 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
   const watch = client ? await db.loadWatch(client) : [];
   const ignored = client ? await db.loadIgnored(client) : new Set<string>();
 
-  // termos por país: palavras-chave + lista de espionagem (sem repetir)
+  // grupos viram uma busca por país; o rodízio escolhe as que ficaram mais tempo sem rodar
+  const paused = client ? await db.loadPausedCountries(client) : new Set<string>();
+  const allPairs = expandKeywords(keywords, paused).filter((k) => !onlyCountries.length || onlyCountries.includes(k.country));
+  const lastRun = client ? await db.loadKeywordRuns(client) : new Map<string, number>();
+  const picked = pickSearches(allPairs, lastRun, num("META_MAX_SEARCHES", 300));
+
+  // termos por país: rodízio + lista de espionagem (sem repetir)
   const byCountry = new Map<string, Set<string>>();
-  for (const k of [...keywords, ...watch]) {
-    if (onlyCountries.length && !onlyCountries.includes(k.country)) continue;
+  for (const k of [...picked, ...watch.filter((w) => !paused.has(w.country) && (!onlyCountries.length || onlyCountries.includes(w.country)))]) {
     const set = byCountry.get(k.country) ?? new Set<string>();
     set.add(k.term);
     byCountry.set(k.country, set);
@@ -58,34 +64,44 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
 
   const errors: string[] = [];
   const perKeyword: number[] = [];
+  const done: { term: string; country: string }[] = [];
+  const deadline = Date.now() + num("META_MINUTES", 110) * 60_000;
   let okSearches = 0;
   let loginWalls = 0;
+  let wallsInARow = 0;
+  const stopped = () => Date.now() > deadline || wallsInARow >= 8;
   const allAds: (AdWithMeta & { country: string })[] = [];
   const allSnaps: (OfferSnapshot & { country: string })[] = [];
   const allAliases: OfferAlias[] = [];
   const perCountry: string[] = [];
 
   for (const country of countries) {
+    if (stopped()) break;
     const terms = [...byCountry.get(country)!];
     const source = makeMetaSource(country);
     const results: KeywordResult[] = [];
     try {
       for (const term of terms) {
+        if (stopped()) break;
         try {
           const r = await source.searchKeyword(term);
-          console.log(`[meta ${country}] "${term}": ${r.ads.length} anúncios (${r.totalResults ?? "?"})`);
+          // os registros do repositório público não mostram as palavras-chave
+          console.log(`[meta ${country}] busca ${perKeyword.length + 1}: ${r.ads.length} anúncios (${r.totalResults ?? "?"})`);
           perKeyword.push(r.ads.length);
-          if (r.scroll && perKeyword.length <= 2)
-            notes.push(`Meta rolagem "${term}": ${r.scroll.start} → ${r.scroll.end} cards em ${r.scroll.rounds} rolagens.`);
+          done.push({ term, country });
+          wallsInARow = 0;
           if (r.ads.length) {
             results.push(r);
             okSearches++;
           } else errors.push(`${country} "${term}": nenhum anúncio lido`);
         } catch (e) {
           const msg = (e as Error).message;
-          if (/pediu login/.test(msg)) loginWalls++;
+          if (/pediu login/.test(msg)) {
+            loginWalls++;
+            wallsInARow++;
+          }
           errors.push(`${country} "${term}": ${msg}`);
-          console.warn(`[meta ${country}] falhou "${term}":`, msg);
+          console.warn(`[meta ${country}] busca falhou:`, msg);
         }
         await jitter(3000, 7000);
       }
@@ -98,7 +114,7 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
     const aliases = resolveOfferKeys(ads, client ? await db.loadAliasHints(client, country) : new Map());
     const snaps = buildSnapshots(ads);
     applyCountry(country, ads, snaps, aliases);
-    allAds.push(...ads.map((a) => ({ ...a, country })));
+    allAds.push(...ads.map((a) => ({ ...a, country, countries: [country] })));
     allSnaps.push(...snaps.map((s) => ({ ...s, country })));
     allAliases.push(...aliases);
     perCountry.push(`${country} ${snaps.length}`);
@@ -107,9 +123,10 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
   const avg = perKeyword.length ? Math.round(perKeyword.reduce((a, b) => a + b, 0) / perKeyword.length) : 0;
   console.log(`[meta] ${allAds.length} anúncios únicos, ${allSnaps.length} ofertas, ${allAliases.length} duplicadas juntadas`);
   notes.push(
-    `Meta: ${okSearches}/${totalSearches} buscas ok (${watch.length} da espionagem), média de ${avg} anúncios por busca, ${allAds.length} anúncios únicos, ` +
-      `${allSnaps.length} ofertas (${perCountry.join(", ")}), ${allAliases.length} duplicadas juntadas` +
-      (errors.length ? `. Falhas: ${errors.slice(0, 5).join(" | ")}` : ""),
+    `Meta: ${okSearches}/${totalSearches} buscas ok de ${allPairs.length} no rodízio (${watch.length} da espionagem), média de ${avg} anúncios por busca, ` +
+      `${allAds.length} anúncios únicos, ${allSnaps.length} ofertas (${perCountry.join(", ")}), ${allAliases.length} duplicadas juntadas` +
+      (errors.length ? `. ${errors.length} buscas falharam` : "") +
+      (wallsInARow >= 8 ? ". Parou antes do fim: a Meta pediu login em sequência" : ""),
   );
 
   // Se a maior parte das buscas falhou, não sobrescreve a foto do dia com dados incompletos
@@ -117,6 +134,7 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
 
   if (client) {
     await db.saveAds(client, allAds);
+    await db.saveKeywordRuns(client, done);
     await db.saveAliases(client, allAliases);
     if (healthy) await db.saveSnapshots(client, day, allSnaps);
     await db.logRun(client, "meta", healthy, allAds.length, [`média ${avg} anúncios/busca · ${perCountry.join(", ")}`, ...errors].join("\n"));
@@ -316,7 +334,7 @@ async function tiktokFetch(url: string, referer: string): Promise<Buffer> {
  * espionagem na biblioteca europeia (concorrentes espionados em Portugal, Reino Unido e Europa).
  */
 async function runTikTok(client: Db, day: string) {
-  const countries = (process.env.TIKTOK_COUNTRIES || "BR,US").split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
+  const countries = (process.env.TIKTOK_COUNTRIES || "US,GB,DE,FR").split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
   const source = new TikTokSource();
   const per: string[] = [];
   const errors: string[] = [];

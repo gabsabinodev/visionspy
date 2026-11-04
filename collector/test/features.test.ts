@@ -5,6 +5,7 @@ import { buildPrompt, classifyBatch, inputHash, parseInsights, rankModels } from
 import { computeAlerts, formatAlerts, isSurge, type RankRow } from "../src/alerts.js";
 import { buildSnapshots, mergeAds, resolveOfferKeys, uniqueAds, type AdWithMeta } from "../src/aggregate.js";
 import { toThumb } from "../src/creatives.js";
+import { expandKeywords, GROUPS, pairKey, pickSearches } from "../src/rotation.js";
 import { analyzeLanding, extractPrices, extractTrackingIds, isVisitable } from "../src/landing.js";
 import { destTypeFor, isGenericDomain, offerKeyFor, parseMetaLibraryText } from "../src/parse/meta.js";
 import type { MetaAd } from "../src/types.js";
@@ -229,10 +230,35 @@ test("mineração: a melhor posição na busca vale quando duas palavras acham o
 
 test("mesmo anúncio em dois países vira um registro só, com a melhor posição", () => {
   const ad = (country: string, rank: number, copies: number, keyword: string) =>
-    ({ libraryId: "1", advertiser: "Loja", body: "", copies, rank, offerKey: `${country}:d:loja.com`, keywords: [keyword], country }) as unknown as AdWithMeta & { country: string };
+    ({ libraryId: "1", advertiser: "Loja", body: "", copies, rank, offerKey: `${country}:d:loja.com`, keywords: [keyword], country, countries: [country] }) as unknown as AdWithMeta & { country: string };
   const r = uniqueAds([ad("gb", 40, 2, "free uk delivery"), ad("de", 5, 7, "nur heute"), ad("fr", 20, 3, "stock limité")]);
   assert.equal(r.length, 1);
   assert.equal(r[0].country, "de");
+  assert.deepEqual(r[0].countries, ["gb", "de", "fr"]);
   assert.equal(r[0].copies, 7);
   assert.deepEqual(r[0].keywords, ["free uk delivery", "nur heute", "stock limité"]);
+});
+
+test("palavra em grupo vira uma busca por país, sem repetir", () => {
+  const pairs = expandKeywords([{ term: "farewell sale", country: "EUROPA" }, { term: "farewell sale", country: "GB" }, { term: "frete grátis", country: "BR" }]);
+  assert.equal(pairs.filter((p) => p.term === "farewell sale").length, GROUPS.EUROPA.countries.length);
+  assert.ok(pairs.some((p) => p.country === "BR"));
+  assert.equal(new Set(pairs.map(pairKey)).size, pairs.length);
+});
+
+test("país desligado sai da busca, mesmo dentro de um grupo", () => {
+  const pairs = expandKeywords([{ term: "x", country: "BIG5" }, { term: "y", country: "BR" }], new Set(["GB", "BR"]));
+  assert.deepEqual(pairs.map((p) => p.country), ["US", "DE", "FR", "CA"]);
+});
+
+test("rodízio pega o que nunca rodou, depois o mais parado, nos maiores mercados primeiro", () => {
+  const pairs = [{ term: "a", country: "PT" }, { term: "a", country: "GB" }, { term: "b", country: "GB" }, { term: "c", country: "DE" }];
+  const last = new Map([[pairKey(pairs[2]), 2000], [pairKey(pairs[3]), 1000]]);
+  assert.deepEqual(pickSearches(pairs, last, 3).map(pairKey), ["GB|a", "PT|a", "DE|c"]);
+});
+
+test("grupos menores cabem nos maiores", () => {
+  const big = (n: string) => GROUPS[n].countries;
+  assert.deepEqual([big("BIG5").length, big("BIG10").length, big("BIG15").length, big("BIG20").length], [5, 10, 15, 20]);
+  for (const [small, large] of [["BIG5", "BIG10"], ["BIG10", "BIG15"], ["BIG15", "BIG20"]]) assert.ok(big(small).every((c) => big(large).includes(c)));
 });

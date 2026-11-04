@@ -1,0 +1,8 @@
+{
+  "EUROPA": {"label": "Europa", "countries": ["GB", "DE", "FR", "IT", "ES", "NL", "SE", "CH", "BE", "AT", "IE", "NO", "DK", "PL", "PT"]},
+  "NORTE": {"label": "América do Norte", "countries": ["US", "CA", "MX"]},
+  "BIG5": {"label": "Big 5", "countries": ["US", "GB", "DE", "FR", "CA"]},
+  "BIG10": {"label": "Big 10", "countries": ["US", "GB", "DE", "FR", "CA", "AU", "IT", "ES", "NL", "JP"]},
+  "BIG15": {"label": "Big 15", "countries": ["US", "GB", "DE", "FR", "CA", "AU", "IT", "ES", "NL", "JP", "SE", "CH", "BE", "AT", "IE"]},
+  "BIG20": {"label": "Big 20", "countries": ["US", "GB", "DE", "FR", "CA", "AU", "IT", "ES", "NL", "JP", "SE", "CH", "BE", "AT", "IE", "NO", "DK", "NZ", "PL", "MX"]}
+}

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { EUROPE } from "./db";
+import { DEFAULT_PAIS, paisList } from "./db";
 import { parsePais } from "./query";
 import { isMoeda, type Moeda, type Phase } from "./spend";
 
@@ -7,7 +7,7 @@ import { isMoeda, type Moeda, type Phase } from "./spend";
 export interface AdRow {
   library_id: string; offer_key: string; advertiser: string; domain: string | null; body: string | null; start_date: string | null;
   copies: number; keywords: string[]; page_url: string | null; landing_url: string | null; thumb_url: string | null; thumb_path: string | null;
-  media_type: string | null; media_path: string | null; video_url: string | null; cta: string | null; dest_type: string | null; country: string;
+  media_type: string | null; media_path: string | null; video_url: string | null; cta: string | null; dest_type: string | null; country: string; countries: string[];
   first_seen: string; last_seen: string; best_rank: number | null; body_hash: string; days_running: number; phase: Phase;
   est_month: number; est_currency: string; est_month_brl: number; heat_v: number;
   niche: string | null; kind: string | null; promise: string | null; risk: string | null; status: string | null; big_brand: boolean;
@@ -66,7 +66,7 @@ export function mineHref(f: MineFilters, patch: Partial<MineFilters> = {}, path 
   const m = { ...f, ...patch };
   const p = new URLSearchParams();
   if (m.q) p.set("q", m.q);
-  if (m.pais !== "BR") p.set("pais", m.pais);
+  if (m.pais !== DEFAULT_PAIS) p.set("pais", m.pais);
   if (m.min) p.set("de", String(m.min));
   if (m.max) p.set("ate", String(m.max));
   if (m.fase) p.set("fase", m.fase);
@@ -92,8 +92,8 @@ export async function queryAds(client: SupabaseClient, f: MineFilters, rate = 1)
     .order(sort.col, { ascending: sort.asc, nullsFirst: false })
     .order("copies", { ascending: false })
     .limit(f.limit);
-  if (f.pais === "europa") query = query.in("country", EUROPE);
-  else if (f.pais !== "todos") query = query.eq("country", f.pais);
+  const paises = paisList(f.pais);
+  if (paises) query = query.overlaps("countries", paises);
   if (!f.marcas) query = query.eq("big_brand", false);
   if (f.min) query = query.gte("est_month_brl", f.min * rate);
   if (f.max) query = query.lte("est_month_brl", f.max * rate);

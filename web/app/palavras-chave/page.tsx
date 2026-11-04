@@ -1,5 +1,7 @@
 import { revalidatePath } from "next/cache";
-import { COUNTRIES, countryName, db, type OfferRow } from "@/lib/db";
+import { redirect } from "next/navigation";
+import { COUNTRIES, countryName, db, GROUPS, isScope, scopeList, scopeName, type OfferRow } from "@/lib/db";
+import { parseTerms, SEARCHES_PER_DAY } from "@/lib/keywords";
 import { fmtMoney } from "@/lib/spend";
 import { suggestKeywords } from "@/lib/suggest";
 import { addKeywordTerm } from "../actions";
@@ -7,17 +9,56 @@ import { Icon } from "../icons";
 
 export const dynamic = "force-dynamic";
 
-async function addKeyword(form: FormData) {
+type Search = Promise<Record<string, string | string[] | undefined>>;
+
+const REGIONS = [
+  { key: "europa", label: "Europa" },
+  { key: "americas", label: "Américas" },
+  { key: "outros", label: "Ásia e Oceania" },
+];
+
+/** Aceita várias de uma vez: a mesma palavra num destino que já existe só volta a ficar ativa. */
+async function addKeywords(form: FormData) {
   "use server";
-  const term = String(form.get("term") || "").trim().toLowerCase();
-  const country = String(form.get("country") || "BR").toUpperCase();
-  if (term && /^[A-Z]{2}$/.test(country)) await db().from("keywords").upsert({ term, country, active: true }, { onConflict: "term,country" });
+  const terms = parseTerms(String(form.get("terms") ?? ""));
+  const scope = String(form.get("scope") ?? "").toUpperCase();
+  if (!terms.length || !isScope(scope)) redirect("/palavras-chave");
+  const client = db();
+  const { data: existing } = await client.from("keywords").select("term").eq("country", scope).limit(5000);
+  const known = new Set(((existing ?? []) as { term: string }[]).map((k) => k.term));
+  const fresh = terms.filter((t) => !known.has(t)).length;
+  await client.from("keywords").upsert(terms.map((term) => ({ term, country: scope, active: true })), { onConflict: "term,country" });
   revalidatePath("/palavras-chave");
+  redirect(`/palavras-chave?novas=${fresh}&repetidas=${terms.length - fresh}&destino=${scope}`);
 }
 
 async function toggleKeyword(form: FormData) {
   "use server";
   await db().from("keywords").update({ active: form.get("active") === "true" }).eq("id", Number(form.get("id")));
+  revalidatePath("/palavras-chave");
+}
+
+async function deleteKeyword(form: FormData) {
+  "use server";
+  await db().from("keywords").delete().eq("id", Number(form.get("id")));
+  revalidatePath("/palavras-chave");
+}
+
+async function toggleGroup(form: FormData) {
+  "use server";
+  const scope = String(form.get("scope") ?? "").toUpperCase();
+  if (isScope(scope)) await db().from("keywords").update({ active: form.get("active") === "true" }).eq("country", scope);
+  revalidatePath("/palavras-chave");
+}
+
+/** Liga ou desliga um país inteiro: vale também para os grupos que têm esse país. */
+async function toggleCountry(form: FormData) {
+  "use server";
+  const country = String(form.get("country") ?? "").toUpperCase();
+  if (!/^[A-Z]{2}$/.test(country)) return;
+  const client = db();
+  if (form.get("paused") === "true") await client.from("paused_countries").upsert({ country });
+  else await client.from("paused_countries").delete().eq("country", country);
   revalidatePath("/palavras-chave");
 }
 
@@ -36,31 +77,45 @@ async function removeIgnored(form: FormData) {
 
 type Offer = Pick<OfferRow, "offer_key" | "keywords" | "country" | "phase" | "est_month" | "est_currency" | "est_month_brl" | "sample_text" | "promise">;
 
-export default async function PalavrasChave() {
+export default async function PalavrasChave({ searchParams }: { searchParams: Search }) {
+  const sp = await searchParams;
   const client = db();
-  const [{ data: kws }, { data: ign }, { data: offerRows }] = await Promise.all([
-    client.from("keywords").select("id, term, active, country").order("term"),
+  const [{ data: kws }, { data: ign }, { data: offerRows }, { data: pausedRows }] = await Promise.all([
+    client.from("keywords").select("id, term, active, country").order("term").limit(5000),
     client.from("ignored_advertisers").select("name").order("name"),
     client.from("offer_ranking").select("offer_key, keywords, country, phase, est_month, est_currency, est_month_brl, sample_text, promise").eq("discarded", false).order("est_month_brl", { ascending: false }).limit(1000),
+    client.from("paused_countries").select("country"),
   ]);
   const list = (kws ?? []) as { id: number; term: string; active: boolean; country: string | null }[];
   const offers = (offerRows ?? []) as Offer[];
+  const paused = new Set(((pausedRows ?? []) as { country: string }[]).map((r) => r.country));
   const active = list.filter((k) => k.active).length;
   const groups = new Map<string, typeof list>();
   for (const k of list) {
     const c = (k.country || "BR").toUpperCase();
     groups.set(c, [...(groups.get(c) ?? []), k]);
   }
-  const ordered = [...groups.entries()].sort((a, b) => (a[0] === "BR" ? -1 : b[0] === "BR" ? 1 : a[0].localeCompare(b[0])));
+  const live = (c: string) => scopeList(c).some((x) => !paused.has(x));
+  const rank = (c: string) => (c in GROUPS ? Object.keys(GROUPS).indexOf(c) : live(c) ? 100 : 200);
+  const ordered = [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || scopeName(a[0]).localeCompare(scopeName(b[0])));
+
+  // quantas buscas diferentes o rodízio tem hoje
+  const pairs = new Set(list.filter((k) => k.active).flatMap((k) => scopeList((k.country || "BR").toUpperCase()).filter((c) => !paused.has(c)).map((c) => `${c}|${k.term}`))).size;
+  const cycle = Math.max(Math.ceil(pairs / SEARCHES_PER_DAY), 1);
+  const added = Number(sp.novas ?? NaN);
+  const repeated = Number(sp.repetidas ?? 0);
+  const fmt = (n: number) => n.toLocaleString("pt-BR");
 
   // rendimento: o que cada busca traz de oferta boa
   const yieldOf = (term: string, country: string) => {
-    const hits = offers.filter((o) => o.country === country && o.keywords?.includes(term));
+    const where = scopeList(country);
+    const hits = offers.filter((o) => where.includes(o.country) && o.keywords?.includes(term));
     return { offers: hits.length, winners: hits.filter((o) => o.phase === "vencedor").length, spend: hits.reduce((s, o) => s + (Number(o.est_month) || 0), 0), currency: hits[0]?.est_currency ?? "BRL" };
   };
 
-  const suggestions = ordered.map(([c]) => {
-    const docs = offers.filter((o) => o.country === c).map((o) => ({ key: o.offer_key, text: `${o.sample_text ?? ""} ${o.promise ?? ""}` }));
+  const suggestions = ordered.filter(([c]) => live(c)).map(([c]) => {
+    const where = scopeList(c);
+    const docs = offers.filter((o) => where.includes(o.country)).map((o) => ({ key: o.offer_key, text: `${o.sample_text ?? ""} ${o.promise ?? ""}` }));
     return { country: c, items: suggestKeywords(docs, (groups.get(c) ?? []).map((k) => k.term), 10) };
   }).filter((g) => g.items.length);
 
@@ -69,10 +124,59 @@ export default async function PalavrasChave() {
       <header className="page-head">
         <h1>Palavras-chave</h1>
         <p>
-          Cada frase é buscada exatamente assim na Biblioteca da Meta, no país escolhido, começando pelos anúncios mais vistos. {active} de {list.length} estão
-          ativas. Quanto melhor a lista, mais oferta boa entra.
+          Cada frase é buscada exatamente assim na Biblioteca da Meta. {fmt(active)} de {fmt(list.length)} estão ativas e somam {fmt(pairs)} buscas.
+          O robô faz até {fmt(SEARCHES_PER_DAY)} por dia, então cada busca repete a cada {cycle} {cycle === 1 ? "dia" : "dias"}.
         </p>
       </header>
+
+      {Number.isFinite(added) && (
+        <div className="notice" role="status">
+          <b>{added === 1 ? "1 palavra nova" : `${fmt(added)} palavras novas`} em {scopeName(String(sp.destino ?? ""))}.</b>
+          {repeated > 0 && <p>{repeated === 1 ? "1 já existia" : `${fmt(repeated)} já existiam`} e ficou ativa.</p>}
+        </div>
+      )}
+
+      <section className="panel kw-add">
+        <h2>Adicionar palavras</h2>
+        <p className="muted">Cole uma por linha ou separe por vírgula. As repetidas são ignoradas.</p>
+        <form action={addKeywords}>
+          <textarea className="field" name="terms" rows={6} required aria-label="Palavras-chave" placeholder={"retirement sale, closing down sale\nfarewell sale"} />
+          <div className="kw-add-row">
+            <label className="select-wrap">
+              <span className="sr-only">Destino da busca</span>
+              <select name="scope" defaultValue="EUROPA" aria-label="Destino da busca">
+                <optgroup label="Regiões e maiores mercados">
+                  {Object.entries(GROUPS).map(([code, g]) => <option key={code} value={code}>{g.label} ({g.countries.length} países)</option>)}
+                </optgroup>
+                <optgroup label="Um país">
+                  {Object.entries(COUNTRIES).sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([c, v]) => <option key={c} value={c}>{v.name}</option>)}
+                </optgroup>
+              </select>
+              <Icon name="chevron" size={15} />
+            </label>
+            <button className="btn">Adicionar palavras</button>
+          </div>
+        </form>
+      </section>
+
+      <section className="panel">
+        <h2>Países na coleta</h2>
+        <p className="muted">Desligue um país e o robô para de buscar nele, mesmo que ele esteja em Europa ou nos grupos Big. As palavras continuam salvas.</p>
+        {REGIONS.map((r) => (
+          <div key={r.key} className="country-block">
+            <h3>{r.label}</h3>
+            <div className="country-toggles">
+              {Object.entries(COUNTRIES).filter(([, v]) => v.region === r.key).map(([c, v]) => (
+                <form key={c} action={toggleCountry}>
+                  <input type="hidden" name="country" value={c} />
+                  <input type="hidden" name="paused" value={String(!paused.has(c))} />
+                  <button aria-pressed={!paused.has(c)} title={paused.has(c) ? `Ligar ${v.name}` : `Desligar ${v.name}`}>{v.name}</button>
+                </form>
+              ))}
+            </div>
+          </div>
+        ))}
+      </section>
 
       {suggestions.length > 0 && (
         <section className="panel stack">
@@ -80,7 +184,7 @@ export default async function PalavrasChave() {
           <p className="muted">Frases que aparecem em 3 ofertas ou mais e o robô ainda não busca. Clique para adicionar.</p>
           {suggestions.map((g) => (
             <div key={g.country}>
-              <h3>{countryName(g.country)}</h3>
+              <h3>{scopeName(g.country)}</h3>
               <div className="suggest">
                 {g.items.map((s) => (
                   <form key={s.term} action={addKeywordTerm}>
@@ -98,42 +202,46 @@ export default async function PalavrasChave() {
       <div className="two-col">
         <section className="panel">
           <h2>Buscas</h2>
-          <form action={addKeyword} className="inline-form">
-            <input className="field" name="term" placeholder="Ex.: dor no joelho" required aria-label="Nova palavra-chave" />
-            <label className="select-wrap">
-              <span className="sr-only">País da busca</span>
-              <select name="country" defaultValue="BR" aria-label="País da busca">
-                {Object.entries(COUNTRIES).map(([c, v]) => <option key={c} value={c}>{v.name}</option>)}
-              </select>
-              <Icon name="chevron" size={15} />
-            </label>
-            <button className="btn">Adicionar</button>
-          </form>
-          {ordered.map(([c, items]) => (
-            <div key={c} className="kw-group">
-              <h3>{countryName(c)} <span className="dim">{items.filter((k) => k.active).length} de {items.length} ativas</span></h3>
-              <ul className="kw-list">
-                {items.map((k) => {
-                  const y = yieldOf(k.term, c);
-                  return (
-                    <li key={k.id}>
-                      <span className={k.active ? "" : "off"}>{k.term}</span>
-                      <span className="sublinks">
-                        <span className={y.offers ? "" : "yield-bad"} title="Ofertas encontradas por esta busca">{y.offers} {y.offers === 1 ? "oferta" : "ofertas"}</span>
-                        {y.winners > 0 && <span title="Ofertas com anúncio vencedor">{y.winners} {y.winners === 1 ? "vencedora" : "vencedoras"}</span>}
-                        {y.spend > 0 && <span title="Investimento estimado somado">{fmtMoney(y.spend, y.currency)}</span>}
-                        <form action={toggleKeyword} style={{ display: "inline" }}>
-                          <input type="hidden" name="id" value={k.id} />
-                          <input type="hidden" name="active" value={String(!k.active)} />
-                          <button className={k.active ? "btn ghost" : "btn"}>{k.active ? "Pausar" : "Ativar"}</button>
-                        </form>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+          {ordered.map(([c, items]) => {
+            const on = items.filter((k) => k.active).length;
+            return (
+              <details key={c} className="kw-group" open={items.length <= 12 && live(c)}>
+                <summary>
+                  <b>{scopeName(c)}</b>
+                  <span className="dim">{on} de {items.length} ativas{c in GROUPS ? `, ${scopeList(c).length} países` : ""}{live(c) ? "" : ", país desligado"}</span>
+                </summary>
+                <form action={toggleGroup} className="kw-group-actions">
+                  <input type="hidden" name="scope" value={c} />
+                  <input type="hidden" name="active" value={String(on === 0)} />
+                  <button className="btn ghost">{on === 0 ? "Ativar todas" : "Pausar todas"}</button>
+                </form>
+                <ul className="kw-list">
+                  {items.map((k) => {
+                    const y = yieldOf(k.term, c);
+                    return (
+                      <li key={k.id}>
+                        <span className={k.active ? "" : "off"}>{k.term}</span>
+                        <span className="sublinks">
+                          <span className={y.offers ? "" : "yield-bad"} title="Ofertas encontradas por esta busca">{y.offers} {y.offers === 1 ? "oferta" : "ofertas"}</span>
+                          {y.winners > 0 && <span title="Ofertas com anúncio vencedor">{y.winners} {y.winners === 1 ? "vencedora" : "vencedoras"}</span>}
+                          {y.spend > 0 && <span title="Investimento estimado somado">{fmtMoney(y.spend, y.currency)}</span>}
+                          <form action={toggleKeyword} style={{ display: "inline" }}>
+                            <input type="hidden" name="id" value={k.id} />
+                            <input type="hidden" name="active" value={String(!k.active)} />
+                            <button className={k.active ? "btn ghost" : "btn"}>{k.active ? "Pausar" : "Ativar"}</button>
+                          </form>
+                          <form action={deleteKeyword} style={{ display: "inline" }}>
+                            <input type="hidden" name="id" value={k.id} />
+                            <button className="btn ghost danger" aria-label={`Excluir ${k.term}`} title="Excluir"><Icon name="x" size={12} /></button>
+                          </form>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
+            );
+          })}
         </section>
 
         <section className="panel">

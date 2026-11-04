@@ -27,19 +27,24 @@ cópias × orçamento diário por cópia × dias no ar (até 30) × bônus de po
 
 ## Países e moedas
 
-Cada palavra-chave pertence a um país. O painel filtra por país ou pela Europa inteira, e mostra os valores em R$, US$, € ou £. A moeda padrão segue o país, e os câmbios ficam na tabela `spend_model`.
+Cada palavra-chave vai para um país ou um grupo. O painel filtra por país, Europa, América do Norte ou Big 5 a 20, e mostra os valores em R$, US$, € ou £. Os grupos ficam em `web/lib/groups.json`, e os câmbios na tabela `spend_model`.
 
-| Rodada (horário de São Paulo) | Países |
+| Grupo | Países |
 | --- | --- |
-| 06:17 | Brasil |
-| 12:17 | Reino Unido, Portugal, Espanha, França, Alemanha, Itália, Holanda, Bélgica, Irlanda e Áustria |
-| 18:17 | Estados Unidos, Canadá, México, Austrália e Japão |
+| Europa | Reino Unido, Alemanha, França, Itália, Espanha, Holanda, Suécia, Suíça, Bélgica, Áustria, Irlanda, Noruega, Dinamarca, Polônia e Portugal |
+| América do Norte | Estados Unidos, Canadá e México |
+| Big 5 | Estados Unidos, Reino Unido, Alemanha, França e Canadá |
+| Big 10 | Big 5 + Austrália, Itália, Espanha, Holanda e Japão |
+| Big 15 | Big 10 + Suécia, Suíça, Bélgica, Áustria e Irlanda |
+| Big 20 | Big 15 + Noruega, Dinamarca, Nova Zelândia, Polônia e México |
 
-País sem palavra-chave ativa não é buscado. Bélgica, Irlanda, Áustria, Canadá, México e Austrália vêm sem palavras: adicione na tela Palavras-chave, no idioma do país. Para mudar as rodadas, edite `.github/workflows/coletar.yml`.
+Na tela Palavras-chave, cole várias palavras de uma vez, por linha ou com vírgula, e desligue países inteiros. País desligado não é buscado, mesmo dentro de um grupo.
 
-A busca na Meta e os alertas rodam nas três rodadas. Criativos, mídia, Google, TikTok, Reclame Aqui, páginas, IA e limpeza rodam só na de 18:17, para caber nos planos grátis do Supabase e do Gemini.
+O robô roda às 06:17, 12:17 e 18:17, no horário de São Paulo, com até 300 buscas por rodada (`META_MAX_SEARCHES`). Cada palavra vira uma busca por país, e o rodízio começa pelas que estão há mais tempo sem rodar. Anúncio ativo é o que foi visto nos últimos 7 dias.
 
-Em repositório privado, a cota grátis do GitHub Actions não cobre as três rodadas por dia. Em repositório público não tem limite de minutos, mas os registros das coletas ficam visíveis, com as palavras-chave.
+A busca na Meta e os alertas rodam nas três rodadas. Criativos, mídia, Google, TikTok, Reclame Aqui, páginas, IA e limpeza rodam só na de 18:17, para caber nos planos grátis do Supabase e do Gemini. Os registros da coleta não mostram as palavras-chave, porque o repositório é público.
+
+Em repositório privado, a cota grátis do GitHub Actions não cobre as três rodadas por dia. Em repositório público não tem limite de minutos.
 
 ## Custos
 
@@ -53,7 +58,7 @@ Tudo roda nos planos grátis, e nenhum deles cobra sozinho quando o limite acaba
 | Gemini | cota gratuita, sem faturamento ligado | a etapa de IA para e continua no dia seguinte |
 | Telegram | grátis | sem limite relevante aqui |
 
-A limpeza diária mantém o projeto dentro do plano do Supabase. Anúncio com menos de 3 cópias sai após 14 dias sem aparecer, e os demais após 60. Oferta no funil ou na espionagem fica. Os vídeos têm teto de 350 MB dos anúncios e 150 MB do TikTok, em `MEDIA_BUDGET_MB` e `TIKTOK_BUDGET_MB`.
+A limpeza diária mantém o projeto dentro do plano do Supabase. Anúncio com menos de 3 cópias sai após 7 dias sem aparecer, e os demais após 45. Oferta no funil ou na espionagem fica. Os vídeos têm teto de 350 MB dos anúncios e 150 MB do TikTok, em `MEDIA_BUDGET_MB` e `TIKTOK_BUDGET_MB`.
 
 A Vercel Hobby é só para uso pessoal não comercial. Se o painel servir ao seu negócio, confirme com o suporte da Vercel ou use o Pro.
 

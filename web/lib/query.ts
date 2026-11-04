@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { EUROPE, STATUSES, type OfferRow } from "./db";
+import { DEFAULT_PAIS, GROUPS, paisList, STATUSES, type OfferRow } from "./db";
 
 /** Filtros do ranking, lidos da URL (a URL é a fonte da verdade: dá para salvar e compartilhar). */
 export interface Filters {
@@ -76,12 +76,11 @@ type Raw = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
 const clean = (v: string, n = 60) => v.replace(/[,()%*\\]/g, " ").trim().slice(0, n);
 
-/** "us" -> "US"; "todos" fica "todos"; qualquer outra coisa vira Brasil. */
+/** "us" -> "US"; grupos ficam em minúsculas ("europa", "big5"); qualquer outra coisa vira todos. */
 export function parsePais(v: string): string {
   const up = v.trim().toUpperCase();
-  if (up === "TODOS") return "todos";
-  if (up === "EUROPA") return "europa";
-  return /^[A-Z]{2}$/.test(up) ? up : "BR";
+  if (up in GROUPS) return up.toLowerCase();
+  return /^[A-Z]{2}$/.test(up) ? up : DEFAULT_PAIS;
 }
 
 export function parseFilters(sp: Raw): Filters {
@@ -133,7 +132,7 @@ export function hrefWith(f: Filters, patch: Partial<Filters>, path = "/ofertas")
   const defaultDir = ASC_DEFAULT.includes(m.sort) ? "asc" : "desc";
   if (m.dir !== defaultDir) p.set("dir", m.dir);
   for (const k of ["novas", "crescendo", "google", "site", "todas", "marcas", "cod", "vsl", "validadas", "esfriando", "espionadas", "tiktok", "kwai"] as const) if (m[k]) p.set(k, "1");
-  if (m.pais && m.pais !== "BR") p.set("pais", m.pais);
+  if (m.pais && m.pais !== DEFAULT_PAIS) p.set("pais", m.pais);
   for (const k of ["nicho", "tipo", "destino", "checkout", "risco", "status"] as const) if (m[k]) p.set(k, m[k]);
   if (m.preco) p.set("preco", String(m.preco));
   if (m.limit !== PAGE_SIZE) p.set("n", String(m.limit));
@@ -171,8 +170,8 @@ export async function queryOffers(client: SupabaseClient, f: Filters, limit = f.
   if (f.risco) query = query.eq("risk", f.risco);
   if (f.cod) query = query.eq("cod", true);
   if (f.vsl) query = query.eq("has_vsl", true);
-  if (f.pais === "europa") query = query.in("country", EUROPE);
-  else if (f.pais !== "todos") query = query.eq("country", f.pais);
+  const paises = paisList(f.pais);
+  if (paises) query = query.in("country", paises);
   if (f.lente === "vencedoras" || f.validadas) query = query.gt("long_runners", 0);
   if (f.lente === "esfriando" || f.esfriando) query = query.eq("cooling", true);
   if (!f.marcas) query = query.eq("big_brand", false);

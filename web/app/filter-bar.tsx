@@ -78,8 +78,8 @@ export function FilterBar({ countries, currencySymbol, keywords, facets, exportH
   }, []);
 
   const kw = params.get("kw") ?? "";
-  const rawPais = (params.get("pais") ?? "BR").toUpperCase();
-  const pais = rawPais === "TODOS" ? "todos" : rawPais === "EUROPA" ? "europa" : rawPais;
+  const rawPais = (params.get("pais") ?? "todos").trim();
+  const pais = /^[a-z]{2}$/i.test(rawPais) ? rawPais.toUpperCase() : rawPais.toLowerCase();
   const MORE = ["destino", "checkout", "preco", "risco", "status", "kw", ...TOGGLES.map((t) => t.key)];
   const active = MORE.filter((k) => params.get(k)).length;
   const anyFilter = !!(params.get("q") || params.get("nicho") || params.get("tipo") || active);
@@ -105,12 +105,10 @@ export function FilterBar({ countries, currencySymbol, keywords, facets, exportH
         <input ref={inputRef} type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Busque anunciante, site, texto ou promessa" aria-label="Buscar anunciante, site, texto ou promessa" />
         <kbd aria-hidden="true">/</kbd>
       </label>
-      <label className={`select-wrap country${pais !== "BR" ? " on" : ""}`}>
+      <label className={`select-wrap country${pais !== "todos" ? " on" : ""}`}>
         <span className="sr-only">País</span>
-        <select value={pais} aria-label="País" onChange={(e) => push({ pais: e.target.value === "BR" ? null : e.target.value, kw: null })}>
-          <option value="europa">Europa inteira</option>
+        <select value={pais} aria-label="País" onChange={(e) => push({ pais: e.target.value === "todos" ? null : e.target.value, kw: null })}>
           {countries.map((c) => <option key={c.value} value={c.value}>{c.label}{c.count ? ` (${c.count})` : ""}</option>)}
-          <option value="todos">Todos os países</option>
         </select>
         <Icon name="chevron" size={15} />
       </label>

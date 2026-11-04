@@ -42,7 +42,7 @@ export default async function Espionagem() {
         <h2>Adicionar alvo</h2>
         <form action={addWatch} className="inline-form">
           <input className="field" name="term" placeholder="site (loja.com.br) ou nome da página no Facebook" required aria-label="Site ou nome da página" />
-          <select className="field country-sel" name="country" defaultValue="BR" aria-label="País">
+          <select className="field country-sel" name="country" defaultValue="GB" aria-label="País">
             {Object.entries(COUNTRIES).map(([c, v]) => <option key={c} value={c}>{v.name}</option>)}
           </select>
           <button className="btn">Espionar</button>

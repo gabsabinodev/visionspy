@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { COUNTRIES, countryName, creativeSrc, db, defaultMoeda, DEST_LABEL, fmtDate, inPais, KIND_LABEL, libraryLink, priceRange, shortUrl, type DestType, type OfferRow } from "@/lib/db";
+import { COUNTRIES, countryName, creativeSrc, db, DEFAULT_PAIS, defaultMoeda, DEST_LABEL, fmtDate, groupOptions, inPais, KIND_LABEL, libraryLink, paisList, priceRange, scopeList, shortUrl, type DestType, type OfferRow } from "@/lib/db";
 import { countAll, countBig, hrefWith, isFiltered, LENSES, PAGE_SIZE, parseFilters, queryOffers, STRONG_SIGNAL, type Filters, type Lens, type SortKey } from "@/lib/query";
 import { fmtMoney, heatColor, heatOf, heatText, PHASE_LABEL } from "@/lib/spend";
 import { ignoreAdvertiser, setStatus, toggleFavorite, toggleWatch } from "../actions";
@@ -64,14 +64,18 @@ export default async function Ofertas({ searchParams }: { searchParams: Search }
   const byCountry = new Map<string, number>();
   for (const r of everyRow) byCountry.set(r.country ?? "BR", (byCountry.get(r.country ?? "BR") ?? 0) + 1);
   const allKws = (kws ?? []) as { term: string; country: string | null }[];
-  const countryOpts = [...new Set(["BR", ...Object.keys(COUNTRIES), ...byCountry.keys(), ...allKws.map((k) => (k.country || "BR").toUpperCase())])]
-    .sort((a, b) => (a === "BR" ? -1 : b === "BR" ? 1 : (byCountry.get(b) ?? 0) - (byCountry.get(a) ?? 0) || countryName(a).localeCompare(countryName(b))))
-    .map((c) => ({ value: c, label: countryName(c), count: byCountry.get(c) ?? 0 }));
+  const countryOpts = [
+    { value: DEFAULT_PAIS, label: "Todos os países", count: 0 },
+    ...groupOptions(),
+    ...[...new Set([...Object.keys(COUNTRIES), ...byCountry.keys()])]
+      .sort((a, b) => (byCountry.get(b) ?? 0) - (byCountry.get(a) ?? 0) || countryName(a).localeCompare(countryName(b)))
+      .map((c) => ({ value: c, label: countryName(c), count: byCountry.get(c) ?? 0 })),
+  ];
   const rows = everyRow.filter((r) => inPais(f.pais, r.country));
   const currencySymbol = new Intl.NumberFormat("en-US", { style: "currency", currency: f.pais === "todos" ? "USD" : defaultMoeda(f.pais) }).formatToParts(0).find((p) => p.type === "currency")?.value ?? "R$";
   const counts = new Map<string, number>();
   for (const r of rows) for (const k of r.keywords ?? []) counts.set(k, (counts.get(k) ?? 0) + 1);
-  const terms = [...new Set(allKws.filter((k) => inPais(f.pais, (k.country || "BR").toUpperCase())).map((k) => k.term))];
+  const terms = [...new Set(allKws.filter((k) => scopeList((k.country || "BR").toUpperCase()).some((c) => inPais(f.pais, c))).map((k) => k.term))];
   const keywordChips = terms.map((term) => ({ term, count: counts.get(term) ?? 0 })).filter((k) => k.count > 0 || k.term === f.kw).sort((a, b) => b.count - a.count || a.term.localeCompare(b.term));
   const facets = {
     nicho: facet(rows, (r) => [r.niche]),
@@ -129,7 +133,7 @@ export default async function Ofertas({ searchParams }: { searchParams: Search }
                     <div className="offer-main">
                       <div className="offer-title">
                         <Link className="offer-name" href={href} data-act="open">{o.advertiser}</Link>
-                        {(f.pais === "todos" || f.pais === "europa") && <span className="country-tag" title={countryName(o.country)}>{o.country}</span>}
+                        {paisList(f.pais)?.length !== 1 && <span className="country-tag" title={countryName(o.country)}>{o.country}</span>}
                         {o.domain && <span className="domain">{o.domain}</span>}
                       </div>
                       <div className="snippet">{o.promise ?? o.sample_text?.slice(0, 110)}</div>

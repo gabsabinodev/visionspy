@@ -19,7 +19,7 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) 
 
 export default async function TikTok({ searchParams }: { searchParams: Search }) {
   const sp = await searchParams;
-  const pais = /^[A-Z]{2}$/.test(one(sp.pais).toUpperCase()) ? one(sp.pais).toUpperCase() : one(sp.pais) === "todos" ? "todos" : "BR";
+  const pais = /^[A-Z]{2}$/.test(one(sp.pais).toUpperCase()) ? one(sp.pais).toUpperCase() : "todos";
   const sort = (Object.keys(SORTS).includes(one(sp.ordem)) ? one(sp.ordem) : "curtidas") as SortKey;
   const q = one(sp.q).replace(/[,()%*\\]/g, " ").trim().slice(0, 60);
   const recentes = one(sp.periodo) !== "tudo";
@@ -42,7 +42,7 @@ export default async function TikTok({ searchParams }: { searchParams: Search })
   const run = lastRun?.[0] as { ok: boolean; items: number; message: string | null; finished_at: string } | undefined;
   const href = (patch: Record<string, string | null>) => {
     const p = new URLSearchParams();
-    const cur: Record<string, string> = { pais: pais === "BR" ? "" : pais, ordem: sort === "curtidas" ? "" : sort, q, periodo: recentes ? "" : "tudo" };
+    const cur: Record<string, string> = { pais: pais === "todos" ? "" : pais, ordem: sort === "curtidas" ? "" : sort, q, periodo: recentes ? "" : "tudo" };
     for (const [k, v] of Object.entries({ ...cur, ...patch })) if (v) p.set(k, v);
     const s = p.toString();
     return s ? `/tiktok?${s}` : "/tiktok";
@@ -61,16 +61,16 @@ export default async function TikTok({ searchParams }: { searchParams: Search })
       </header>
 
       <nav className="lenses" aria-label="País">
-        {[...new Set(["BR", "US", ...byCountry.keys()])].map((c) => (
-          <Link key={c} href={href({ pais: c === "BR" ? "" : c, n: null })} aria-current={pais === c ? "true" : undefined}>{countryName(c)} <span className="count">{byCountry.get(c) ?? 0}</span></Link>
+        <Link href={href({ pais: "", n: null })} aria-current={pais === "todos" ? "true" : undefined}>Todos</Link>
+        {[...new Set(["US", "GB", ...byCountry.keys()])].map((c) => (
+          <Link key={c} href={href({ pais: c, n: null })} aria-current={pais === c ? "true" : undefined}>{countryName(c)} <span className="count">{byCountry.get(c) ?? 0}</span></Link>
         ))}
-        <Link href={href({ pais: "todos", n: null })} aria-current={pais === "todos" ? "true" : undefined}>Todos</Link>
       </nav>
 
       <section className="offerbar" aria-label="Filtros do TikTok">
         <form className="search" action="/tiktok">
           <Icon name="key" size={18} />
-          {pais !== "BR" && <input type="hidden" name="pais" value={pais} />}
+          {pais !== "todos" && <input type="hidden" name="pais" value={pais} />}
           {sort !== "curtidas" && <input type="hidden" name="ordem" value={sort} />}
           {!recentes && <input type="hidden" name="periodo" value="tudo" />}
           <input type="search" name="q" defaultValue={q} placeholder="Busque texto do anúncio, marca ou setor" aria-label="Buscar no texto do anúncio, marca ou setor" />

@@ -84,6 +84,32 @@ export async function loadWatch(db: SupabaseClient): Promise<(SearchTerm & { off
   }));
 }
 
+/** Países desligados na tela de Palavras-chave. */
+export async function loadPausedCountries(db: SupabaseClient): Promise<Set<string>> {
+  const rows = check(await db.from("paused_countries").select("country"), "paused_countries") as { country: string }[];
+  return new Set(rows.map((r) => r.country));
+}
+
+/** Quando cada busca rodou pela última vez (rodízio). */
+export async function loadKeywordRuns(db: SupabaseClient): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  for (let from = 0; ; from += 1000) {
+    const rows = check(
+      await db.from("keyword_runs").select("term, country, last_run").order("country").order("term").range(from, from + 999),
+      "keyword_runs",
+    ) as { term: string; country: string; last_run: string }[];
+    for (const r of rows) out.set(`${r.country}|${r.term}`, new Date(r.last_run).getTime());
+    if (rows.length < 1000) return out;
+  }
+}
+
+export async function saveKeywordRuns(db: SupabaseClient, pairs: SearchTerm[]) {
+  const last_run = new Date().toISOString();
+  await inChunks(pairs, 500, async (chunk) => {
+    check(await db.from("keyword_runs").upsert(chunk.map((p) => ({ term: p.term, country: p.country, last_run })), { onConflict: "term,country" }), "keyword_runs");
+  });
+}
+
 export async function loadIgnored(db: SupabaseClient): Promise<Set<string>> {
   const data = check(await db.from("ignored_advertisers").select("name"), "ignored_advertisers");
   return new Set((data ?? []).map((r: { name: string }) => r.name.toLowerCase()));
@@ -112,6 +138,7 @@ export async function saveAds(db: SupabaseClient, ads: (AdWithMeta & { country?:
           dest_type: a.destType ?? null,
           video_url: a.videoUrl ?? null,
           country: a.country ?? "BR",
+          countries: a.countries ?? [a.country ?? "BR"],
           last_seen: now,
         })),
         { onConflict: "library_id" },
@@ -630,7 +657,7 @@ export interface Cleanup {
 
 /** Roda a limpeza do banco e devolve os arquivos que ficaram sem dono. */
 export async function cleanOldData(db: SupabaseClient): Promise<Cleanup> {
-  const res = await db.rpc("limpar_dados");
+  const res = await db.rpc("limpar_dados", { dias_fraco: 7, dias_total: 45 });
   if (res.error) throw new Error(`limpar_dados: ${res.error.message}`);
   return res.data as Cleanup;
 }

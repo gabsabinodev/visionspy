@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { demoClient } from "./demo";
+import groups from "./groups.json";
 
 export function db(): SupabaseClient {
   if (process.env.VISIONSPY_DEMO === "1") return demoClient as unknown as SupabaseClient;
@@ -78,8 +79,7 @@ export interface OfferRow {
 }
 
 /** Países que o robô sabe buscar (dá para adicionar outros nas palavras-chave). */
-export const COUNTRIES: Record<string, { name: string; locale: string; currency: string; region: "br" | "europa" | "americas" | "outros" }> = {
-  BR: { name: "Brasil", locale: "pt-BR", currency: "BRL", region: "br" },
+export const COUNTRIES: Record<string, { name: string; locale: string; currency: string; region: "europa" | "americas" | "outros" }> = {
   GB: { name: "Reino Unido", locale: "en-GB", currency: "GBP", region: "europa" },
   PT: { name: "Portugal", locale: "pt-PT", currency: "EUR", region: "europa" },
   ES: { name: "Espanha", locale: "es-ES", currency: "EUR", region: "europa" },
@@ -90,20 +90,39 @@ export const COUNTRIES: Record<string, { name: string; locale: string; currency:
   BE: { name: "Bélgica", locale: "fr-BE", currency: "EUR", region: "europa" },
   IE: { name: "Irlanda", locale: "en-IE", currency: "EUR", region: "europa" },
   AT: { name: "Áustria", locale: "de-AT", currency: "EUR", region: "europa" },
+  SE: { name: "Suécia", locale: "sv-SE", currency: "SEK", region: "europa" },
+  NO: { name: "Noruega", locale: "nb-NO", currency: "NOK", region: "europa" },
+  DK: { name: "Dinamarca", locale: "da-DK", currency: "DKK", region: "europa" },
+  CH: { name: "Suíça", locale: "de-CH", currency: "CHF", region: "europa" },
+  PL: { name: "Polônia", locale: "pl-PL", currency: "PLN", region: "europa" },
   US: { name: "Estados Unidos", locale: "en-US", currency: "USD", region: "americas" },
   CA: { name: "Canadá", locale: "en-CA", currency: "CAD", region: "americas" },
   MX: { name: "México", locale: "es-MX", currency: "MXN", region: "americas" },
+  BR: { name: "Brasil", locale: "pt-BR", currency: "BRL", region: "americas" },
   AU: { name: "Austrália", locale: "en-AU", currency: "AUD", region: "outros" },
+  NZ: { name: "Nova Zelândia", locale: "en-NZ", currency: "NZD", region: "outros" },
   JP: { name: "Japão", locale: "ja-JP", currency: "JPY", region: "outros" },
 };
-export const EUROPE = Object.keys(COUNTRIES).filter((c) => COUNTRIES[c].region === "europa");
-/** O filtro de país aceita um país, "europa" ou "todos". */
-export const inPais = (pais: string, country: string | null | undefined) =>
-  pais === "todos" || (pais === "europa" ? EUROPE.includes(country ?? "") : (country ?? "BR") === pais);
-export const paisName = (pais: string) => (pais === "todos" ? "todos os países" : pais === "europa" ? "Europa" : countryName(pais));
+/** Grupos de países: mesmo arquivo que o robô lê. */
+export const GROUPS = groups as Record<string, { label: string; countries: string[] }>;
+export const DEFAULT_PAIS = "todos";
+/** Destino de uma palavra-chave: um país ou um grupo. */
+export const isScope = (c: string) => /^[A-Z]{2}$/.test(c) || c in GROUPS;
+export const scopeList = (c: string) => GROUPS[c]?.countries ?? [c];
+export const scopeName = (c: string) => GROUPS[c]?.label ?? countryName(c);
+/** O filtro aceita um país ("GB"), um grupo ("europa", "big5") ou "todos". Devolve null para todos. */
+export const paisList = (pais: string): string[] | null => (pais === "todos" ? null : scopeList(pais.toUpperCase()));
+export const inPais = (pais: string, country: string | null | undefined) => {
+  const list = paisList(pais);
+  return !list || list.includes(country ?? "");
+};
+export const paisName = (pais: string) => (pais === "todos" ? "todos os países" : scopeName(pais.toUpperCase()));
+/** Opções de grupo para os seletores de país. */
+export const groupOptions = () => Object.entries(GROUPS).map(([code, g]) => ({ value: code.toLowerCase(), label: g.label, count: 0 }));
 /** Moeda que a tela usa quando a pessoa não escolheu outra. */
 export function defaultMoeda(pais: string): "BRL" | "USD" | "EUR" | "GBP" {
   if (pais === "europa") return "EUR";
+  if (pais.toUpperCase() in GROUPS) return "USD";
   const c = COUNTRIES[pais]?.currency;
   return c === "BRL" || c === "EUR" || c === "GBP" || c === "USD" ? c : "USD";
 }

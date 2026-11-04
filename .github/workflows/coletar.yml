@@ -2,7 +2,7 @@ name: Coletar ofertas
 
 on:
   schedule:
-    # Uma região por rodada, em horário de São Paulo: 06:17 Brasil, 12:17 Europa, 18:17 Américas e resto
+    # Rodízio de buscas, em horário de São Paulo: 06:17, 12:17 e 18:17. Só a última faz as etapas pesadas
     - cron: "17 9 * * *"
     - cron: "17 15 * * *"
     - cron: "17 21 * * *"
@@ -13,7 +13,7 @@ on:
         required: false
         default: ""
       paises:
-        description: "Só estes países na busca da Meta (ex.: BR,US). Vazio = todos com palavra-chave ativa."
+        description: "Só estes países na busca da Meta (ex.: BR,US). Vazio = todos do rodízio."
         required: false
         default: ""
 
@@ -48,17 +48,14 @@ jobs:
       - name: Testes do leitor
         run: npm test
 
-      - name: Escolher a região da rodada
-        id: regiao
+      - name: Escolher as etapas da rodada
+        id: rodada
         run: |
           # Mídia, TikTok, páginas e IA só na última rodada: repetir nas três estoura o plano grátis
           case "${{ github.event.schedule }}" in
-            "17 9 * * *")  p="BR"; o="meta,alertas" ;;
-            "17 15 * * *") p="GB,PT,ES,FR,DE,IT,NL,BE,IE,AT"; o="meta,alertas" ;;
-            "17 21 * * *") p="US,CA,MX,AU,JP"; o="" ;;
-            *) p=""; o="" ;;
+            "17 9 * * *"|"17 15 * * *") o="meta,alertas" ;;
+            *) o="" ;;
           esac
-          echo "paises=$p" >> "$GITHUB_OUTPUT"
           echo "etapas=$o" >> "$GITHUB_OUTPUT"
 
       - name: Coletar
@@ -69,8 +66,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PANEL_URL: ${{ vars.PANEL_URL }}
-          ONLY: ${{ github.event.inputs.only || steps.regiao.outputs.etapas }}
-          META_COUNTRIES: ${{ github.event.inputs.paises || steps.regiao.outputs.paises }}
+          ONLY: ${{ github.event.inputs.only || steps.rodada.outputs.etapas }}
+          META_COUNTRIES: ${{ github.event.inputs.paises }}
         run: |
           if [ -n "$ONLY" ]; then
             npm run collect -- "--only=$ONLY"

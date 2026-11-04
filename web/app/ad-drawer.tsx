@@ -56,7 +56,7 @@ export async function AdDrawer({ id, closeHref, moeda, rate }: { id: string; clo
       <dl className="kvs">
         <div className="kv"><dt>Fase</dt><dd><span className={`phase inline ph-${a.phase}`}>{PHASE_LABEL[a.phase]}</span> <span className="dim">{PHASE_HINT[a.phase]}</span></dd></div>
         <div className="kv"><dt>No ar desde</dt><dd>{fmtDate(a.start_date)} ({a.days_running} dias)</dd></div>
-        <div className="kv"><dt>País</dt><dd>{countryName(a.country)}</dd></div>
+        <div className="kv"><dt>{a.countries.length > 1 ? "Países" : "País"}</dt><dd>{a.countries.map(countryName).join(", ")}</dd></div>
         {a.best_rank && <div className="kv"><dt>Posição na busca</dt><dd>{a.best_rank}º entre os mais vistos</dd></div>}
         {a.niche && <div className="kv"><dt>Nicho</dt><dd>{a.niche}</dd></div>}
         {a.promise && <div className="kv"><dt>Promessa</dt><dd>{a.promise}</dd></div>}
