@@ -164,7 +164,8 @@ export async function geminiJson(opts: {
       }
       if (res.status === 429 || res.status === 503) {
         lastErr = `${model}: ${res.status}`;
-        await sleep(20_000 * (attempt + 1));
+        if (attempt >= 1) break; // cota acabou: tenta o próximo modelo sem ficar parado
+        await sleep(15_000);
         continue;
       }
       if (res.status === 404) {

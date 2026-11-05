@@ -27,6 +27,11 @@ const notes: string[] = [];
 const only = (process.argv.find((a) => a.startsWith("--only=")) || "").replace("--only=", "").split(",").filter(Boolean);
 const want = (s: string) => only.length === 0 || only.includes(s);
 const num = (name: string, def: number) => Number(process.env[name] || def);
+/** Cada etapa de IA tem um teto: com a cota apertada, o resto fica para a próxima rodada. */
+const aiClock = () => {
+  const limit = Date.now() + num("AI_MINUTES", 10) * 60_000;
+  return () => Date.now() > limit;
+};
 
 /**
  * Troque aqui pela fonte paga quando quiser (ex.: new ApifyMetaSource()).
@@ -238,7 +243,8 @@ async function runAi(client: Db) {
   const errs: string[] = [];
   const models = await aiModels(key);
   console.log("[ia] modelos:", models.join(", "));
-  for (let i = 0; i < todo.length; i += size) {
+  const late = aiClock();
+  for (let i = 0; i < todo.length && !late(); i += size) {
     const batch = todo.slice(i, i + size);
     try {
       const r = await classifyBatch(batch, key, models);
@@ -282,7 +288,9 @@ async function runTranscripts(client: Db) {
   const models = await aiModels(key);
   let done = 0;
   const errs: string[] = [];
+  const late = aiClock();
   for (const v of todo) {
+    if (late()) break;
     try {
       const dl = await client.storage.from(MEDIA_BUCKET).download(v.media_path);
       if (dl.error || !dl.data) throw new Error(dl.error?.message ?? "download vazio");
@@ -309,7 +317,9 @@ async function runKits(client: Db) {
   const models = await aiModels(key);
   let done = 0;
   const errs: string[] = [];
+  const late = aiClock();
   for (const k of todo) {
+    if (late()) break;
     try {
       const r = await buildKit(k, key, models);
       await db.saveKit(client, k.key, r.kit, r.model, k.hash);
@@ -537,11 +547,12 @@ async function main() {
     if (want("tiktok")) await step("tiktok", () => runTikTok(client, day));
     if (want("ra")) await step("reclameaqui", () => runRa(client, day));
     if (want("paginas")) await step("paginas", () => runLandings(client));
+    // a IA fica por último: é a única etapa que depende de cota e pode demorar
+    if (want("alertas")) await step("alertas", () => runAlerts(client));
+    if (want("limpeza")) await step("limpeza", () => runCleanup(client));
     if (want("ia")) await step("ia", () => runAi(client));
     if (want("kit")) await step("kit", () => runKits(client));
     if (want("transcricao")) await step("transcricao", () => runTranscripts(client));
-    if (want("alertas")) await step("alertas", () => runAlerts(client));
-    if (want("limpeza")) await step("limpeza", () => runCleanup(client));
   }
 
   await closeBrowser();
