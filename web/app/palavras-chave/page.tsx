@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { COUNTRIES, countryName, db, GROUPS, isScope, scopeList, scopeName, type OfferRow } from "@/lib/db";
-import { parseTerms, SEARCHES_PER_DAY } from "@/lib/keywords";
+import { parseTerms } from "@/lib/keywords";
 import { fmtMoney } from "@/lib/spend";
 import { suggestKeywords } from "@/lib/suggest";
 import { addKeywordTerm } from "../actions";
@@ -80,11 +80,13 @@ type Offer = Pick<OfferRow, "offer_key" | "keywords" | "country" | "phase" | "es
 export default async function PalavrasChave({ searchParams }: { searchParams: Search }) {
   const sp = await searchParams;
   const client = db();
-  const [{ data: kws }, { data: ign }, { data: offerRows }, { data: pausedRows }] = await Promise.all([
+  const since = new Date(Date.now() - 864e5).toISOString();
+  const [{ data: kws }, { data: ign }, { data: offerRows }, { data: pausedRows }, { count: recent }] = await Promise.all([
     client.from("keywords").select("id, term, active, country").order("term").limit(5000),
     client.from("ignored_advertisers").select("name").order("name"),
     client.from("offer_ranking").select("offer_key, keywords, country, phase, est_month, est_currency, est_month_brl, sample_text, promise").eq("discarded", false).order("est_month_brl", { ascending: false }).limit(1000),
     client.from("paused_countries").select("country"),
+    client.from("keyword_runs").select("term", { count: "exact", head: true }).gte("last_run", since),
   ]);
   const list = (kws ?? []) as { id: number; term: string; active: boolean; country: string | null }[];
   const offers = (offerRows ?? []) as Offer[];
@@ -101,7 +103,6 @@ export default async function PalavrasChave({ searchParams }: { searchParams: Se
 
   // quantas buscas diferentes o rodízio tem hoje
   const pairs = new Set(list.filter((k) => k.active).flatMap((k) => scopeList((k.country || "BR").toUpperCase()).filter((c) => !paused.has(c)).map((c) => `${c}|${k.term}`))).size;
-  const cycle = Math.max(Math.ceil(pairs / SEARCHES_PER_DAY), 1);
   const added = Number(sp.novas ?? NaN);
   const repeated = Number(sp.repetidas ?? 0);
   const fmt = (n: number) => n.toLocaleString("pt-BR");
@@ -125,7 +126,7 @@ export default async function PalavrasChave({ searchParams }: { searchParams: Se
         <h1>Palavras-chave</h1>
         <p>
           Cada frase é buscada exatamente assim na Biblioteca da Meta. {fmt(active)} de {fmt(list.length)} estão ativas e somam {fmt(pairs)} buscas.
-          O robô faz até {fmt(SEARCHES_PER_DAY)} por dia, então cada busca repete a cada {cycle} {cycle === 1 ? "dia" : "dias"}.
+          Nas últimas 24 horas o robô fez {fmt(recent ?? 0)}. Busca sem anúncio espera 7 dias para repetir.
         </p>
       </header>
 

@@ -24,6 +24,13 @@ const CTA =
  * Converte o texto visível da página de resultados da Biblioteca de Anúncios
  * (document.body.innerText) em uma lista de anúncios.
  */
+/** A Meta avisou que a busca não tem anúncio (dá para sair na hora, sem esperar os cards). */
+export const EMPTY_RESULT = String.raw`(^|\s)~?0 resultados?\b|Nenhum (resultado|anúncio)|No (ads|results)`;
+export const isEmptyResult = (text: string) => new RegExp(EMPTY_RESULT, "i").test(text);
+
+/** "~6.900 resultados" -> 6900. */
+export const resultCount = (total: string | null) => Number((total ?? "").replace(/\D/g, "")) || 0;
+
 export function parseMetaLibraryText(text: string): { total: string | null; ads: MetaAd[] } {
   const total = (text.match(/[>~]?[\d.]+ resultados/) || [null])[0];
   const chunks = text.split("Identificação da biblioteca: ").slice(1);

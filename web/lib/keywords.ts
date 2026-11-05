@@ -1,6 +1,3 @@
-/** Teto do rodízio: 3 rodadas por dia, com até 300 buscas em cada uma. */
-export const SEARCHES_PER_DAY = 900;
-
 /** Separa o texto colado em palavras-chave: vale vírgula, ponto e vírgula ou quebra de linha. */
 export function parseTerms(raw: string): string[] {
   const seen = new Set<string>();

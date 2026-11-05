@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { OfferInput } from "./ai.js";
 import { uniqueAds, type AdWithMeta, type OfferAlias } from "./aggregate.js";
+import { nextRunBase } from "./rotation.js";
 import { isVisitable, type LandingInfo } from "./landing.js";
 import { normalizeName } from "./parse/meta.js";
 import type { OfferSnapshot, RaCompany } from "./types.js";
@@ -95,18 +96,18 @@ export async function loadKeywordRuns(db: SupabaseClient): Promise<Map<string, n
   const out = new Map<string, number>();
   for (let from = 0; ; from += 1000) {
     const rows = check(
-      await db.from("keyword_runs").select("term, country, last_run").order("country").order("term").range(from, from + 999),
+      await db.from("keyword_runs").select("term, country, last_run, found").order("country").order("term").range(from, from + 999),
       "keyword_runs",
-    ) as { term: string; country: string; last_run: string }[];
-    for (const r of rows) out.set(`${r.country}|${r.term}`, new Date(r.last_run).getTime());
+    ) as { term: string; country: string; last_run: string; found: number }[];
+    for (const r of rows) out.set(`${r.country}|${r.term}`, nextRunBase(new Date(r.last_run).getTime(), r.found));
     if (rows.length < 1000) return out;
   }
 }
 
-export async function saveKeywordRuns(db: SupabaseClient, pairs: SearchTerm[]) {
+export async function saveKeywordRuns(db: SupabaseClient, runs: (SearchTerm & { found: number })[]) {
   const last_run = new Date().toISOString();
-  await inChunks(pairs, 500, async (chunk) => {
-    check(await db.from("keyword_runs").upsert(chunk.map((p) => ({ term: p.term, country: p.country, last_run })), { onConflict: "term,country" }), "keyword_runs");
+  await inChunks(runs, 500, async (chunk) => {
+    check(await db.from("keyword_runs").upsert(chunk.map((r) => ({ term: r.term, country: r.country, found: r.found, last_run })), { onConflict: "term,country" }), "keyword_runs");
   });
 }
 

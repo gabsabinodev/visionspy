@@ -40,7 +40,7 @@ Cada palavra-chave vai para um país ou um grupo. O painel filtra por país, Eur
 
 Na tela Palavras-chave, cole várias palavras de uma vez, por linha ou com vírgula, e desligue países inteiros. País desligado não é buscado, mesmo dentro de um grupo.
 
-O robô roda às 06:17, 12:17 e 18:17, no horário de São Paulo, com até 300 buscas por rodada (`META_MAX_SEARCHES`). Cada palavra vira uma busca por país, e o rodízio começa pelas que estão há mais tempo sem rodar. Anúncio ativo é o que foi visto nos últimos 7 dias.
+O robô roda às 06:17, 12:17 e 18:17, no horário de São Paulo, por até 100 minutos na Meta (`META_MINUTES`). Cada palavra vira uma busca por país, e o rodízio começa pelas que estão há mais tempo sem rodar. Busca sem anúncio espera 7 dias para repetir. Anúncio ativo é o que foi visto nos últimos 7 dias. O GitHub pode atrasar ou pular rodadas agendadas quando está com muita carga.
 
 A busca na Meta e os alertas rodam nas três rodadas. Criativos, mídia, Google, TikTok, Reclame Aqui, páginas, IA e limpeza rodam só na de 18:17, para caber nos planos grátis do Supabase e do Gemini. Os registros da coleta não mostram as palavras-chave, porque o repositório é público.
 

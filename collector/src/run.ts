@@ -1,9 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { buildKit, classifyBatch, classifyNiches, geminiModels, inputHash, kitHash, transcribeVideo } from "./ai.js";
 import { computeAlerts, formatAlerts, formatCooling, formatWatch, formatWelcome } from "./alerts.js";
-import { applyCountry, buildSnapshots, mergeAds, resolveOfferKeys, type AdWithMeta, type OfferAlias } from "./aggregate.js";
+import { applyCountry, buildSnapshots, mergeAds, resolveOfferKeys } from "./aggregate.js";
 import { BUCKET, storeCreatives, toThumb } from "./creatives.js";
 import { MAX_FILE, MEDIA_BUCKET, pruneMedia, storeMedia } from "./media.js";
+import { resultCount } from "./parse/meta.js";
 import { expandKeywords, pickSearches } from "./rotation.js";
 import { libraryTerm, TIKTOK_LIBRARY_COUNTRIES, TikTokSource } from "./sources/tiktok.js";
 import * as db from "./db.js";
@@ -50,7 +51,7 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
   const paused = client ? await db.loadPausedCountries(client) : new Set<string>();
   const allPairs = expandKeywords(keywords, paused).filter((k) => !onlyCountries.length || onlyCountries.includes(k.country));
   const lastRun = client ? await db.loadKeywordRuns(client) : new Map<string, number>();
-  const picked = pickSearches(allPairs, lastRun, num("META_MAX_SEARCHES", 300));
+  const picked = pickSearches(allPairs, lastRun, num("META_MAX_SEARCHES", 600));
 
   // termos por país: rodízio + lista de espionagem (sem repetir)
   const byCountry = new Map<string, Set<string>>();
@@ -64,15 +65,17 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
 
   const errors: string[] = [];
   const perKeyword: number[] = [];
-  const done: { term: string; country: string }[] = [];
-  const deadline = Date.now() + num("META_MINUTES", 110) * 60_000;
+  const deadline = Date.now() + num("META_MINUTES", 100) * 60_000;
   let okSearches = 0;
+  let emptySearches = 0;
   let loginWalls = 0;
   let wallsInARow = 0;
+  let totalAds = 0;
+  let totalSnaps = 0;
+  let totalAliases = 0;
+  let available = 0;
   const stopped = () => Date.now() > deadline || wallsInARow >= 8;
-  const allAds: (AdWithMeta & { country: string })[] = [];
-  const allSnaps: (OfferSnapshot & { country: string })[] = [];
-  const allAliases: OfferAlias[] = [];
+  const testSnaps: (OfferSnapshot & { country: string })[] = [];
   const perCountry: string[] = [];
 
   for (const country of countries) {
@@ -80,6 +83,7 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
     const terms = [...byCountry.get(country)!];
     const source = makeMetaSource(country);
     const results: KeywordResult[] = [];
+    const ran: { term: string; country: string; found: number }[] = [];
     try {
       for (const term of terms) {
         if (stopped()) break;
@@ -88,12 +92,13 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
           // os registros do repositório público não mostram as palavras-chave
           console.log(`[meta ${country}] busca ${perKeyword.length + 1}: ${r.ads.length} anúncios (${r.totalResults ?? "?"})`);
           perKeyword.push(r.ads.length);
-          done.push({ term, country });
+          available += resultCount(r.totalResults);
+          ran.push({ term, country, found: r.ads.length });
           wallsInARow = 0;
           if (r.ads.length) {
             results.push(r);
             okSearches++;
-          } else errors.push(`${country} "${term}": nenhum anúncio lido`);
+          } else emptySearches++;
         } catch (e) {
           const msg = (e as Error).message;
           if (/pediu login/.test(msg)) {
@@ -103,7 +108,7 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
           errors.push(`${country} "${term}": ${msg}`);
           console.warn(`[meta ${country}] busca falhou:`, msg);
         }
-        await jitter(3000, 7000);
+        await jitter(2000, 4000);
       }
     } finally {
       await source.close();
@@ -114,38 +119,42 @@ async function runMeta(client: ReturnType<typeof db.getDb>, day: string) {
     const aliases = resolveOfferKeys(ads, client ? await db.loadAliasHints(client, country) : new Map());
     const snaps = buildSnapshots(ads);
     applyCountry(country, ads, snaps, aliases);
-    allAds.push(...ads.map((a) => ({ ...a, country, countries: [country] })));
-    allSnaps.push(...snaps.map((s) => ({ ...s, country })));
-    allAliases.push(...aliases);
+    const scopedSnaps = snaps.map((s) => ({ ...s, country }));
+    // grava país a país: se a rodada cair no meio, o que já veio fica salvo
+    if (client) {
+      await db.saveAds(client, ads.map((a) => ({ ...a, country, countries: [country] })));
+      await db.saveKeywordRuns(client, ran);
+      await db.saveAliases(client, aliases);
+      await db.saveSnapshots(client, day, scopedSnaps);
+    } else testSnaps.push(...scopedSnaps);
+    totalAds += ads.length;
+    totalSnaps += snaps.length;
+    totalAliases += aliases.length;
     perCountry.push(`${country} ${snaps.length}`);
   }
 
-  const avg = perKeyword.length ? Math.round(perKeyword.reduce((a, b) => a + b, 0) / perKeyword.length) : 0;
-  console.log(`[meta] ${allAds.length} anúncios únicos, ${allSnaps.length} ofertas, ${allAliases.length} duplicadas juntadas`);
+  const searched = perKeyword.length;
+  const avg = searched ? Math.round(perKeyword.reduce((a, b) => a + b, 0) / searched) : 0;
+  const avgAvailable = searched ? Math.round(available / searched) : 0;
+  console.log(`[meta] ${totalAds} anúncios únicos, ${totalSnaps} ofertas, ${totalAliases} duplicadas juntadas`);
   notes.push(
-    `Meta: ${okSearches}/${totalSearches} buscas ok de ${allPairs.length} no rodízio (${watch.length} da espionagem), média de ${avg} anúncios por busca, ` +
-      `${allAds.length} anúncios únicos, ${allSnaps.length} ofertas (${perCountry.join(", ")}), ${allAliases.length} duplicadas juntadas` +
+    `Meta: ${searched}/${totalSearches} buscas de ${allPairs.length} no rodízio (${watch.length} da espionagem), ${emptySearches} sem anúncio, ` +
+      `média de ${avg} anúncios por busca, de ${avgAvailable} disponíveis, ${totalAds} anúncios únicos, ${totalSnaps} ofertas (${perCountry.join(", ")})` +
       (errors.length ? `. ${errors.length} buscas falharam` : "") +
       (wallsInARow >= 8 ? ". Parou antes do fim: a Meta pediu login em sequência" : ""),
   );
 
-  // Se a maior parte das buscas falhou, não sobrescreve a foto do dia com dados incompletos
-  const healthy = okSearches >= Math.ceil(totalSearches / 2);
+  // busca vazia é resultado normal: falha é a Meta bloquear ou a página quebrar
+  const healthy = errors.length <= searched;
 
   if (client) {
-    await db.saveAds(client, allAds);
-    await db.saveKeywordRuns(client, done);
-    await db.saveAliases(client, allAliases);
-    if (healthy) await db.saveSnapshots(client, day, allSnaps);
-    await db.logRun(client, "meta", healthy, allAds.length, [`média ${avg} anúncios/busca · ${perCountry.join(", ")}`, ...errors].join("\n"));
+    await db.logRun(client, "meta", healthy, totalAds, [`${searched} buscas, ${emptySearches} vazias, média ${avg} anúncios de ${avgAvailable} disponíveis · ${perCountry.join(", ")}`, ...errors].join("\n"));
   } else {
     await mkdir("out", { recursive: true });
-    await writeFile(`out/meta-${day}.json`, JSON.stringify({ snaps: allSnaps, aliases: allAliases }, null, 2));
-    console.table(allSnaps.slice(0, 20).map((s) => ({ oferta: s.advertiser, pais: s.country, dominio: s.domain, cards: s.cards, copias: s.copies })));
+    await writeFile(`out/meta-${day}.json`, JSON.stringify({ snaps: testSnaps }, null, 2));
+    console.table(testSnaps.slice(0, 20).map((s) => ({ oferta: s.advertiser, pais: s.country, dominio: s.domain, cards: s.cards, copias: s.copies })));
   }
-  if (loginWalls >= Math.ceil(totalSearches / 2)) {
-    throw new Error(`A Meta pediu login em ${loginWalls} de ${totalSearches} buscas: o IP do GitHub pode estar bloqueado.`);
-  }
+  if (wallsInARow >= 8) throw new Error(`A Meta pediu login em ${loginWalls} buscas: o IP do GitHub pode estar bloqueado.`);
   if (!healthy) throw new Error(`Coleta da Meta incompleta: ${errors.length} buscas falharam.\n${errors.join("\n")}`);
 }
 

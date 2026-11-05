@@ -5,9 +5,9 @@ import { buildPrompt, classifyBatch, inputHash, parseInsights, rankModels } from
 import { computeAlerts, formatAlerts, isSurge, type RankRow } from "../src/alerts.js";
 import { buildSnapshots, mergeAds, resolveOfferKeys, uniqueAds, type AdWithMeta } from "../src/aggregate.js";
 import { toThumb } from "../src/creatives.js";
-import { expandKeywords, GROUPS, pairKey, pickSearches } from "../src/rotation.js";
+import { expandKeywords, GROUPS, nextRunBase, pairKey, pickSearches } from "../src/rotation.js";
 import { analyzeLanding, extractPrices, extractTrackingIds, isVisitable } from "../src/landing.js";
-import { destTypeFor, isGenericDomain, offerKeyFor, parseMetaLibraryText } from "../src/parse/meta.js";
+import { destTypeFor, isEmptyResult, isGenericDomain, offerKeyFor, parseMetaLibraryText, resultCount } from "../src/parse/meta.js";
 import type { MetaAd } from "../src/types.js";
 
 const ad = (o: Partial<MetaAd> & { libraryId: string; advertiser: string }): MetaAd => ({
@@ -261,4 +261,20 @@ test("grupos menores cabem nos maiores", () => {
   const big = (n: string) => GROUPS[n].countries;
   assert.deepEqual([big("BIG5").length, big("BIG10").length, big("BIG15").length, big("BIG20").length], [5, 10, 15, 20]);
   for (const [small, large] of [["BIG5", "BIG10"], ["BIG10", "BIG15"], ["BIG15", "BIG20"]]) assert.ok(big(small).every((c) => big(large).includes(c)));
+});
+
+test("busca vazia espera 7 dias, e quem rendeu volta antes", () => {
+  const pairs = [{ term: "vazia", country: "GB" }, { term: "boa", country: "GB" }];
+  const now = 1_000_000_000_000;
+  const last = new Map([[pairKey(pairs[0]), nextRunBase(now - 864e5, 0)], [pairKey(pairs[1]), nextRunBase(now, 12)]]);
+  assert.deepEqual(pickSearches(pairs, last, 2).map((p) => p.term), ["boa", "vazia"]);
+});
+
+test("reconhece busca vazia sem confundir com outros totais", () => {
+  assert.ok(isEmptyResult("Biblioteca de Anúncios ~0 resultados Filtros"));
+  assert.ok(isEmptyResult("Nenhum anúncio corresponde à sua pesquisa"));
+  assert.ok(!isEmptyResult("~10 resultados Identificação da biblioteca: 123"));
+  assert.ok(!isEmptyResult("~6.900 resultados"));
+  assert.equal(resultCount("~6.900 resultados"), 6900);
+  assert.equal(resultCount(null), 0);
 });

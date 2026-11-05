@@ -16,6 +16,9 @@ const rankOf = (country: string) => {
 
 export const pairKey = (p: SearchPair) => `${p.country}|${p.term}`;
 
+/** Busca que não trouxe anúncio espera 7 dias para repetir: libera tempo para as que rendem. */
+export const nextRunBase = (lastRun: number, found: number) => lastRun + (found === 0 ? 7 * 864e5 : 0);
+
 /** Palavra com grupo ("EUROPA", "BIG5") vira uma busca por país, sem repetir e sem os países desligados. */
 export function expandKeywords(rows: SearchPair[], paused: Set<string> = new Set()): SearchPair[] {
   const seen = new Set<string>();

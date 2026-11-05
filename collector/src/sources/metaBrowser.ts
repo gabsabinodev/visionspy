@@ -1,8 +1,10 @@
 import type { BrowserContext, Page } from "playwright";
 import { CARD_LINKS_SCRIPT, cleanLandingUrl, cleanPageUrl, hostOf, type CardLinks } from "../parse/links.js";
-import { isGenericDomain, parseMetaLibraryText } from "../parse/meta.js";
+import { EMPTY_RESULT, isGenericDomain, parseMetaLibraryText } from "../parse/meta.js";
 import type { KeywordResult, MetaAdSource } from "../types.js";
 import { jitter, newContext, sleep } from "./browser.js";
+
+const PAGE_MIN = 20;
 
 export function metaLibraryUrl(term: string, country = "BR") {
   const q = encodeURIComponent(`"${term}"`);
@@ -33,11 +35,14 @@ export class MetaBrowserSource implements MetaAdSource {
     const page = await this.getPage();
     await page.goto(metaLibraryUrl(term, this.opts.country), { waitUntil: "domcontentloaded", timeout: 60_000 });
 
-    // espera os cards aparecerem (ou desiste em 20s)
+    // espera os cards ou o aviso de busca vazia (e desiste em 15s)
     await page.waitForFunction(
-      () => !!document.body?.innerText?.includes("Identificação da biblioteca"),
-      undefined,
-      { timeout: 20_000 },
+      (empty) => {
+        const text = document.body?.innerText ?? "";
+        return text.includes("Identificação da biblioteca") || new RegExp(empty, "i").test(text);
+      },
+      EMPTY_RESULT,
+      { timeout: 15_000 },
     ).catch(() => {});
 
     // rola até a página parar de carregar anúncios novos (ou até o limite)
@@ -46,10 +51,17 @@ export class MetaBrowserSource implements MetaAdSource {
     const countCards = () =>
       page.evaluate(() => (document.body?.innerText.match(/Identificação da biblioteca/g) || []).length).catch(() => 0);
     let last = await countCards();
+    if (last === 0) {
+      // o aviso pode piscar antes dos cards: confere de novo antes de dar a busca como vazia
+      await sleep(1500);
+      last = await countCards();
+    }
     const start = last;
     let stale = 0;
     let rounds = 0;
-    for (let i = 0; i < maxScrolls && last < maxCards && stale < 3; i++) {
+    // a Meta carrega uns 30 por vez: com menos que isso, a lista já acabou
+    const hasMore = start >= PAGE_MIN;
+    for (let i = 0; hasMore && i < maxScrolls && last < maxCards && stale < 2; i++) {
       await page.mouse.wheel(0, 4000).catch(() => {});
       await page
         .evaluate(() => window.scrollTo(0, (document.scrollingElement ?? document.documentElement)?.scrollHeight ?? 0))
